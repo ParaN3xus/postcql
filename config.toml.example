@@ -1,0 +1,8 @@
+[openai]
+api_key = "replace-me"
+base_url = "https://api.openai.com/v1"
+model = "gpt-5.4"
+api_mode = "chat_completions"
+
+[app]
+work_dir = "work"
