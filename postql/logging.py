@@ -1,0 +1,37 @@
+import logging
+import sys
+
+
+def setup_logger(
+    name: str = "udon_decompiler", level: int = logging.INFO
+) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(level)
+
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s: [%(levelname)s] %(message)s",
+            datefmt="%H:%M:%S",
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+    return logger
+
+
+logger = setup_logger()
+sdk_logger = logging.getLogger("openai.agents")
+
+
+def set_logger_level(level: "logging._Level") -> None:
+    logger.setLevel(level)
+    for handler in logger.handlers:
+        handler.setLevel(level)
+    sdk_logger.setLevel(level)
+    if not sdk_logger.handlers:
+        for handler in logger.handlers:
+            sdk_logger.addHandler(handler)
+    sdk_logger.propagate = False

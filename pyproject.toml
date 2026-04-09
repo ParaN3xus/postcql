@@ -4,4 +4,26 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "openai-agents>=0.13.6",
+    "websockets>=16.0",
+]
+
+[dependency-groups]
+dev = [
+    "compiledb>=0.10.7",
+    "ruff>=0.15.10",
+    "pyright>=1.1.408"
+]
+
+[tool.ruff.lint]
+select = ["E501"]
+
+[tool.pyright]
+typeCheckingMode = "basic"
+reportMatchNotExhaustive = "error"
+venvPath = "."
+venv = ".venv"
+
+include = ["postql", "main.py"]
+exclude = ["**/__pycache__", ".venv", "**/.*", "**/node_modules", "local", "work"]

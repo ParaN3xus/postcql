@@ -1,6 +1,5 @@
-def main():
-    print("Hello from codeql-on-clice!")
+from postql.cli import main
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
