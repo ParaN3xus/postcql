@@ -9,6 +9,7 @@ from .agent import analyze_codeql_row_sync
 from .codeql_csv import CodeQLResultRow, read_codeql_csv
 from .config import AppConfig, load_config
 from .logging import logger, set_logger_level
+from .run_artifacts import RunArtifacts
 
 
 def _parse_log_level(value: str) -> int:
@@ -82,13 +83,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "analyze-row":
         rows: list[CodeQLResultRow] = read_codeql_csv(config.codeql_csv_path)
         row: CodeQLResultRow = _get_row_by_index(rows=rows, row_index=args.row_index)
+        artifacts: RunArtifacts = RunArtifacts.create(
+            results_dir=config.results_dir,
+            command_name=args.command,
+            name_suffix=str(row.row_index),
+        )
         logger.info(
             "analyzing row=%s rule=%s file=%s",
             row.row_index,
             row.rule_name,
             row.relative_file_path,
         )
-        analyze_codeql_row_sync(config=config, row=row)
+        logger.info("run_artifacts_dir=%s", artifacts.run_dir)
+        analyze_codeql_row_sync(config=config, row=row, artifacts=artifacts)
         return 0
 
     return _run_placeholder(args.command)

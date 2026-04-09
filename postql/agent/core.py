@@ -1,21 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from agents import (
     Agent,
-    ItemHelpers,
-    MessageOutputItem,
-    RawResponsesStreamEvent,
-    ReasoningItem,
-    RunItemStreamEvent,
     Runner,
-    ToolCallItem,
-    ToolCallOutputItem,
     set_default_openai_api,
     set_default_openai_client,
     set_tracing_disabled,
@@ -24,8 +16,10 @@ from agents.mcp import MCPServerStdio
 from openai import AsyncOpenAI
 
 from ..codeql_csv import CodeQLResultRow
-from ..config import AppConfig, DEFAULT_CLANGD_PATH, DEFAULT_MCP_SERVER_COMMAND
+from ..config import DEFAULT_CLANGD_PATH, DEFAULT_MCP_SERVER_COMMAND, AppConfig
 from ..logging import logger
+from ..run_artifacts import RunArtifacts
+from .events import consume_streaming_events
 from .tools import (
     build_read_source_context_tool,
     build_read_source_span_tool,
@@ -120,63 +114,11 @@ Keep the answer technical and specific to the codebase.
 """.strip()
 
 
-def _stringify_tool_call(raw_item: Any) -> str:
-    name: str = str(
-        getattr(raw_item, "name", None) or getattr(raw_item, "type", "unknown_tool")
-    )
-    arguments: Any = getattr(raw_item, "arguments", None)
-    if arguments is None and isinstance(raw_item, dict):
-        arguments = raw_item.get("arguments")
-    return f"{name} args={arguments}"
-
-
-def _stringify_reasoning(item: ReasoningItem) -> str:
-    raw_item: Any = item.raw_item
-    summary: Any = getattr(raw_item, "summary", None)
-    if summary:
-        return str(summary)
-    content: Any = getattr(raw_item, "content", None)
-    if content:
-        return str(content)
-    return str(raw_item)
-
-
-async def _log_streaming_events(result: Any) -> None:
-    async for event in result.stream_events():
-        if isinstance(event, RawResponsesStreamEvent):
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("raw_llm_event=%s", event.data)
-            continue
-
-        if isinstance(event, RunItemStreamEvent):
-            if event.name == "reasoning_item_created" and isinstance(
-                event.item,
-                ReasoningItem,
-            ):
-                logger.debug("llm_reasoning=%s", _stringify_reasoning(event.item))
-            elif event.name == "tool_called" and isinstance(event.item, ToolCallItem):
-                logger.debug(
-                    "tool_called=%s",
-                    _stringify_tool_call(event.item.raw_item),
-                )
-            elif event.name == "tool_output" and isinstance(
-                event.item,
-                ToolCallOutputItem,
-            ):
-                logger.debug("tool_output=%s", event.item.output)
-            elif event.name == "message_output_created" and isinstance(
-                event.item,
-                MessageOutputItem,
-            ):
-                logger.debug(
-                    "message_output_delta=%s",
-                    ItemHelpers.text_message_output(event.item),
-                )
-            else:
-                logger.debug("agent_event=%s item=%s", event.name, event.item)
-
-
-async def analyze_codeql_row(config: AppConfig, row: CodeQLResultRow) -> str:
+async def analyze_codeql_row(
+    config: AppConfig,
+    row: CodeQLResultRow,
+    artifacts: RunArtifacts | None = None,
+) -> str:
     configure_openai_client(config)
     mcp_server: MCPServerStdio = build_mcp_server(config)
     read_source_context_tool: Any = build_read_source_context_tool(config.source_dir)
@@ -211,18 +153,53 @@ async def analyze_codeql_row(config: AppConfig, row: CodeQLResultRow) -> str:
         )
 
         prompt: str = build_triage_prompt(row=row, project_root=config.source_dir)
+        if artifacts is not None:
+            artifacts.add_section(
+                "Run Metadata",
+                {
+                    "row_index": row.row_index,
+                    "rule_name": row.rule_name,
+                    "severity": row.severity,
+                    "file": row.relative_file_path,
+                    "work_dir": config.work_dir,
+                },
+            )
+            artifacts.add_section("Prompt", {"text": prompt})
+
         run_result = Runner.run_streamed(
             agent,
             prompt,
             context=AnalysisContext(row=row, project_root=config.source_dir),
         )
-        await _log_streaming_events(run_result)
+        await consume_streaming_events(run_result, artifacts=artifacts)
         final_output: str = str(run_result.final_output)
+        if artifacts is not None:
+            artifacts.write_result(final_output)
+            artifacts.write_run_json(
+                {
+                    "prompt": prompt,
+                    "final_output": final_output,
+                }
+            )
         logger.info("analysis_result_row=%s\n%s", row.row_index, final_output)
         return final_output
+    except Exception as exc:
+        if artifacts is not None:
+            artifacts.add_section("Error", {"message": str(exc)})
+            artifacts.write_run_json(
+                {
+                    "row": row,
+                    "error": str(exc),
+                }
+            )
+        raise
     finally:
         await mcp_server.cleanup()
 
 
-def analyze_codeql_row_sync(config: AppConfig, row: CodeQLResultRow) -> str:
-    return asyncio.run(analyze_codeql_row(config=config, row=row))
+def analyze_codeql_row_sync(
+    config: AppConfig,
+    row: CodeQLResultRow,
+    artifacts: RunArtifacts | None = None,
+) -> str:
+    return asyncio.run(analyze_codeql_row(config=config, row=row, artifacts=artifacts))

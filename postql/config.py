@@ -38,6 +38,10 @@ class AppConfig:
     def codeql_db_dir(self) -> Path:
         return self.work_dir / "codeql-db"
 
+    @property
+    def results_dir(self) -> Path:
+        return self.work_dir / "results"
+
 
 def _expand_path(value: str | None) -> Path | None:
     if value is None:
