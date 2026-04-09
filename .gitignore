@@ -9,6 +9,7 @@ wheels/
 # Virtual environments
 .venv
 
+# Local
 /local
-
-/codeql-db/clice/
+/work
+config.toml
