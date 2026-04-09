@@ -1,3 +1,0 @@
-[submodule "vendor/clice"]
-	path = vendor/clice
-	url = https://github.com/clice-io/clice
