@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from agents import (
     ItemHelpers,
     MessageOutputItem,
-    RawResponsesStreamEvent,
     ReasoningItem,
     RunItemStreamEvent,
     ToolCallItem,
@@ -15,13 +13,6 @@ from agents import (
 
 from ..logging import logger
 from ..run_artifacts import RunArtifacts
-
-
-def _summarize_raw_response_event(raw_event: Any) -> dict[str, Any]:
-    return {
-        "type": str(getattr(raw_event, "type", type(raw_event).__name__)),
-        "data": str(raw_event),
-    }
 
 
 def _summarize_reasoning_item(item: ReasoningItem) -> dict[str, Any]:
@@ -40,22 +31,35 @@ def _summarize_reasoning_item(item: ReasoningItem) -> dict[str, Any]:
 
 def _summarize_tool_call_item(item: ToolCallItem) -> dict[str, Any]:
     raw_item: Any = item.raw_item
-    return {
+    summary: dict[str, Any] = {
         "tool_name": str(
             getattr(raw_item, "name", None) or getattr(raw_item, "type", "unknown_tool")
         ),
         "arguments": getattr(raw_item, "arguments", None),
     }
+    call_id: Any = getattr(raw_item, "call_id", None)
+    if isinstance(call_id, str):
+        summary["call_id"] = call_id
+    return summary
 
 
 def _summarize_tool_output_item(item: ToolCallOutputItem) -> dict[str, Any]:
     raw_item: Any = item.raw_item
-    return {
-        "tool_name": str(
-            getattr(raw_item, "name", None) or getattr(raw_item, "type", "unknown_tool")
-        ),
+    tool_name: str = str(
+        getattr(raw_item, "name", None) or getattr(raw_item, "type", "unknown_tool")
+    )
+    call_id: Any = getattr(raw_item, "call_id", None)
+    if isinstance(raw_item, dict):
+        tool_name = str(raw_item.get("name") or raw_item.get("type") or tool_name)
+        call_id = raw_item.get("call_id", call_id)
+
+    summary: dict[str, Any] = {
+        "tool_name": tool_name,
         "output": item.output,
     }
+    if isinstance(call_id, str):
+        summary["call_id"] = call_id
+    return summary
 
 
 def _summarize_message_output_item(item: MessageOutputItem) -> dict[str, Any]:
@@ -74,15 +78,10 @@ async def consume_streaming_events(
     result: Any,
     artifacts: RunArtifacts | None = None,
 ) -> None:
-    async for event in result.stream_events():
-        if isinstance(event, RawResponsesStreamEvent):
-            summary: dict[str, Any] = _summarize_raw_response_event(event.data)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("raw_llm_event=%s", summary)
-            if artifacts is not None:
-                artifacts.add_event("raw_response_event", details=summary)
-            continue
+    tool_names_by_call_id: dict[str, str] = {}
+    final_message_output: str | None = None
 
+    async for event in result.stream_events():
         if not isinstance(event, RunItemStreamEvent):
             continue
 
@@ -95,11 +94,18 @@ async def consume_streaming_events(
                 artifacts.add_event("reasoning", details=summary)
         elif event.name == "tool_called" and isinstance(event.item, ToolCallItem):
             summary = _summarize_tool_call_item(event.item)
+            call_id: Any = summary.get("call_id")
+            tool_name: Any = summary.get("tool_name")
+            if isinstance(call_id, str) and isinstance(tool_name, str):
+                tool_names_by_call_id[call_id] = tool_name
             logger.debug("tool_called=%s", summary)
             if artifacts is not None:
                 artifacts.add_event("tool_called", details=summary)
         elif event.name == "tool_output" and isinstance(event.item, ToolCallOutputItem):
             summary = _summarize_tool_output_item(event.item)
+            call_id = summary.get("call_id")
+            if isinstance(call_id, str) and call_id in tool_names_by_call_id:
+                summary["tool_name"] = tool_names_by_call_id[call_id]
             logger.debug("tool_output=%s", summary)
             if artifacts is not None:
                 artifacts.add_event("tool_output", details=summary)
@@ -108,10 +114,15 @@ async def consume_streaming_events(
         ):
             summary = _summarize_message_output_item(event.item)
             logger.debug("message_output=%s", summary)
-            if artifacts is not None:
-                artifacts.add_event("message_output", details=summary)
+            final_message_output = str(summary["message"])
         else:
             summary = _summarize_generic_item(event.item)
             logger.debug("agent_event=%s summary=%s", event.name, summary)
             if artifacts is not None:
                 artifacts.add_event(event.name, details=summary)
+
+    if artifacts is not None and final_message_output is not None:
+        artifacts.add_event(
+            "final_output",
+            details={"message": final_message_output},
+        )
