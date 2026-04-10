@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 from typing import Sequence
 
@@ -52,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Append a test-only prompt instruction that immediately submits a "
         "fabricated valid report",
     )
+    analyze_row.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the interactive confirmation prompt",
+    )
     analyze_all = subparsers.add_parser(
         "analyze-all",
         help="Run the triage agent for every result in the CodeQL SARIF file",
@@ -84,6 +90,28 @@ def _get_row_by_index(rows: list[CodeQLResultRow], row_index: int) -> CodeQLResu
 def _run_placeholder(command_name: str) -> int:
     logger.info("command_not_implemented=%s", command_name)
     return 0
+
+
+def _format_optional_text(value: str | None) -> str:
+    return value if value else "none"
+
+
+def _confirm_analyze_row(row: CodeQLResultRow, test_mode: bool) -> bool:
+    lines: list[str] = [
+        "About to analyze this SARIF result:",
+        f"  row_index: {row.row_index}",
+        f"  rule_name: {row.rule_name}",
+        f"  severity: {row.severity}",
+        f"  file: {row.relative_file_path}",
+        f"  start: {row.start.line}:{row.start.column}",
+        f"  end: {row.end.line}:{row.end.column}",
+        f"  test_mode: {test_mode}",
+        "",
+        "Press Enter to continue, or type 'n' to cancel: ",
+    ]
+    print("\n".join(lines), end="", flush=True)
+    response: str = input().strip().lower()
+    return response not in {"n", "no"}
 
 
 def _run_analyze_row(
@@ -209,6 +237,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "analyze-row":
         rows = read_codeql_sarif(config.codeql_sarif_path)
         row: CodeQLResultRow = _get_row_by_index(rows=rows, row_index=args.row_index)
+        if not args.yes:
+            if not sys.stdin.isatty():
+                raise RuntimeError("Interactive confirmation requires a TTY; use --yes")
+            if not _confirm_analyze_row(row=row, test_mode=args.test_mode):
+                print("Cancelled.")
+                return 1
         return _run_analyze_row(
             config=config,
             row=row,
