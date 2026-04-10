@@ -43,6 +43,7 @@ def _compile_typst_template(
     template_path: Path,
     output_pdf_path: Path,
     report_json_path: Path,
+    workspace_dir: Path,
 ) -> tuple[bool, str | None, str | None]:
     typst_command: str | None = _find_typst_binary()
     if typst_command is None:
@@ -51,7 +52,17 @@ def _compile_typst_template(
     template_path = template_path.resolve()
     output_pdf_path = output_pdf_path.resolve()
     report_json_path = report_json_path.resolve()
+    workspace_dir = workspace_dir.resolve()
     root_dir = template_path.parents[3]
+    try:
+        workspace_relative: Path = workspace_dir.relative_to(root_dir)
+        workspace_input: str = "/" + str(workspace_relative)
+    except ValueError:
+        return (
+            False,
+            typst_command,
+            f"workspace_dir must be under typst root: workspace_dir={workspace_dir} root={root_dir}",
+        )
     report_json_input: str = report_json_path.read_text(encoding="utf-8")
     completed = subprocess.run(
         [
@@ -63,6 +74,8 @@ def _compile_typst_template(
             str(root_dir),
             "--input",
             f"report_json={report_json_input}",
+            "--input",
+            f"workspace_dir={workspace_input}",
         ],
         check=False,
         capture_output=True,
@@ -81,6 +94,7 @@ def write_single_finding_report(
     output_dir: Path,
     row: CodeQLResultRow,
     report: SingleFindingReport,
+    workspace_dir: Path,
 ) -> ReportBundle:
     json_path: Path = output_dir / "report.json"
     pdf_path: Path = output_dir / "report.pdf"
@@ -106,6 +120,7 @@ def write_single_finding_report(
         template_path=_template_dir() / "single-report.typ",
         output_pdf_path=pdf_path,
         report_json_path=json_path,
+        workspace_dir=workspace_dir,
     )
     return ReportBundle(
         json_path=json_path,

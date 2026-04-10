@@ -98,7 +98,9 @@ async def analyze_codeql_row(
     search_source_text_tool: Any = build_search_source_text_tool(config.source_dir)
     search_source_files_tool: Any = build_search_source_files_tool(config.source_dir)
     submit_triage_report_tool: Any = build_submit_triage_report_tool(
-        row=row, artifacts=artifacts
+        row=row,
+        artifacts=artifacts,
+        workspace_dir=config.work_dir,
     )
     await mcp_server.connect()
 

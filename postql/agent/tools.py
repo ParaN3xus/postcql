@@ -225,6 +225,7 @@ def build_search_source_files_tool(source_dir: Path) -> Any:
 def build_submit_triage_report_tool(
     row: CodeQLResultRow,
     artifacts: RunArtifacts,
+    workspace_dir: Path,
 ) -> Any:
     def submit_triage_report(report: SingleFindingReport) -> str:
         """Submit the final structured triage report for this finding."""
@@ -232,6 +233,7 @@ def build_submit_triage_report_tool(
             output_dir=artifacts.run_dir,
             row=row,
             report=report,
+            workspace_dir=workspace_dir,
         )
         artifacts.write_run_json(
             {

@@ -1,5 +1,7 @@
 #import "@preview/zebraw:0.6.1": *
 
+#let workspace-dir = str(sys.inputs.at("workspace_dir", default: "/work"))
+
 
 #let source-segment(
   workspace,
@@ -141,7 +143,7 @@
     .map(x => {
       let end-line = if x.end_line == none { x.start_line } else { x.end_line }
       eval(x.message, mode: "markup")
-      source-segment("/work", x.file_path, x.start_line - 4, end-line + 4, x.start_line, end-line)
+      source-segment(workspace-dir, x.file_path, x.start_line - 4, end-line + 4, x.start_line, end-line)
     })
     .join()
 }
@@ -178,7 +180,7 @@
 
   let start = raw.start.line
   let end = raw.end.line
-  source-segment("/work", raw.relative_file_path, start - 8, end + 8, start, end)
+  source-segment(workspace-dir, raw.relative_file_path, start - 8, end + 8, start, end)
 
   h1[Triage]
 
