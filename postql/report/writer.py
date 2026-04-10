@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from ..codeql_csv import CodeQLResultRow
+from ..codeql_sarif import CodeQLResultRow
 from .models import SingleFindingReport
 
 DEFAULT_TYPST_PATHS: tuple[str, ...] = (

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .agent import analyze_codeql_row_sync
-from .codeql_csv import CodeQLResultRow, read_codeql_csv
+from .codeql_sarif import CodeQLResultRow, read_codeql_sarif
 from .config import AppConfig, load_config
 from .logging import logger, set_logger_level
 from .report import write_full_report
@@ -39,12 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     analyze_row = subparsers.add_parser(
         "analyze-row",
-        help="Run the triage agent for a single CodeQL CSV row index",
+        help="Run the triage agent for a single CodeQL SARIF result index",
     )
     analyze_row.add_argument(
         "row_index",
         type=int,
-        help="0-based row index in the CodeQL CSV",
+        help="0-based result index in the CodeQL SARIF file",
     )
     analyze_row.add_argument(
         "--test-mode",
@@ -52,11 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Append a test-only prompt instruction that immediately submits a "
         "fabricated valid report",
     )
-    analyze_csv = subparsers.add_parser(
-        "analyze-csv",
-        help="Run the triage agent for every row in the CodeQL CSV",
+    analyze_all = subparsers.add_parser(
+        "analyze-all",
+        help="Run the triage agent for every result in the CodeQL SARIF file",
     )
-    analyze_csv.add_argument(
+    analyze_all.add_argument(
         "--test-mode",
         action="store_true",
         help="Append a test-only prompt instruction that immediately "
@@ -113,14 +113,14 @@ def _run_analyze_row(
     return 0
 
 
-def _run_analyze_csv(
+def _run_analyze_all(
     config: AppConfig,
     rows: list[CodeQLResultRow],
     test_mode: bool,
 ) -> int:
     batch_artifacts: RunArtifacts = RunArtifacts.create(
         results_dir=config.results_dir,
-        command_name="analyze-csv",
+        command_name="analyze-all",
     )
     successful_report_json_paths: list[Path] = []
     row_results: list[dict[str, object]] = []
@@ -207,7 +207,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     config: AppConfig = load_config(args.config)
 
     if args.command == "analyze-row":
-        rows = read_codeql_csv(config.codeql_csv_path)
+        rows = read_codeql_sarif(config.codeql_sarif_path)
         row: CodeQLResultRow = _get_row_by_index(rows=rows, row_index=args.row_index)
         return _run_analyze_row(
             config=config,
@@ -215,8 +215,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             command_name=args.command,
             test_mode=args.test_mode,
         )
-    if args.command == "analyze-csv":
-        rows = read_codeql_csv(config.codeql_csv_path)
-        return _run_analyze_csv(config=config, rows=rows, test_mode=args.test_mode)
+    if args.command == "analyze-all":
+        rows = read_codeql_sarif(config.codeql_sarif_path)
+        return _run_analyze_all(config=config, rows=rows, test_mode=args.test_mode)
 
     return _run_placeholder(args.command)

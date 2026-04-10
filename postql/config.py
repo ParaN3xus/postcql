@@ -37,8 +37,8 @@ class AppConfig:
         return self.source_dir
 
     @property
-    def codeql_csv_path(self) -> Path:
-        return self.work_dir / "codeql-results" / "result.csv"
+    def codeql_sarif_path(self) -> Path:
+        return self.work_dir / "codeql-results" / "all.sarif"
 
     @property
     def codeql_db_dir(self) -> Path:

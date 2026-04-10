@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..codeql_csv import CodeQLResultRow
+from ..codeql_sarif import CodeQLResultRow, SupportingLocation
 
 TOOL_USAGE_GUIDANCE: str = """
 - Use MCP language-server tools aggressively, and prefer position-based queries first.
@@ -99,6 +99,61 @@ Test mode is enabled.
 """.strip()
 
 
+def _optional_text(value: str | None) -> str:
+    return value if value else "none"
+
+
+def _format_supporting_location(location: SupportingLocation) -> str:
+    location_label: str = (
+        f"{location.file_path}:{location.start.line}:{location.start.column}"
+    )
+    message: str = location.message or "no message"
+    if location.location_id is None:
+        return f"- {location_label} - {message}"
+    return f"- [id={location.location_id}] {location_label} - {message}"
+
+
+def _render_related_locations(row: CodeQLResultRow, limit: int = 8) -> str:
+    if not row.related_locations:
+        return "- none"
+    rendered: list[str] = [
+        _format_supporting_location(location)
+        for location in row.related_locations[:limit]
+    ]
+    if len(row.related_locations) > limit:
+        rendered.append(
+            f"- ... {len(row.related_locations) - limit} more related locations omitted"
+        )
+    return "\n".join(rendered)
+
+
+def _render_code_flows(
+    row: CodeQLResultRow,
+    max_flows: int = 2,
+    max_steps_per_flow: int = 6,
+) -> str:
+    if not row.code_flows:
+        return "- none"
+    rendered_flows: list[str] = []
+    for code_flow in row.code_flows[:max_flows]:
+        flow_lines: list[str] = [f"- thread_flow_index={code_flow.thread_flow_index}"]
+        for step in code_flow.steps[:max_steps_per_flow]:
+            step_label: str = f"{step.file_path}:{step.start.line}:{step.start.column}"
+            step_message: str = step.message or "no message"
+            flow_lines.append(f"  - {step_label} - {step_message}")
+        if len(code_flow.steps) > max_steps_per_flow:
+            flow_lines.append(
+                "  - ... "
+                f"{len(code_flow.steps) - max_steps_per_flow} more steps omitted"
+            )
+        rendered_flows.append("\n".join(flow_lines))
+    if len(row.code_flows) > max_flows:
+        rendered_flows.append(
+            f"- ... {len(row.code_flows) - max_flows} more code flows omitted"
+        )
+    return "\n".join(rendered_flows)
+
+
 def build_agent_instructions(test_mode: bool = False) -> str:
     if test_mode:
         return " ".join(
@@ -178,7 +233,17 @@ CodeQL finding:
 - end_line: {row.end.line}
 - end_column: {row.end.column}
 - rule_description: {row.rule_description}
+- rule_full_description: {row.rule_full_description}
+- rule_precision: {_optional_text(row.rule_precision)}
+- rule_problem_severity: {_optional_text(row.rule_problem_severity)}
+- rule_security_severity: {_optional_text(row.rule_security_severity)}
 - alert_message: {row.message}
+
+CodeQL related locations:
+{_render_related_locations(row)}
+
+CodeQL code flows:
+{_render_code_flows(row)}
 
 Required submit_triage_report fields:
 - verdict: REAL, FALSE_POSITIVE, or UNCERTAIN
@@ -238,7 +303,17 @@ CodeQL finding:
 - end_line: {row.end.line}
 - end_column: {row.end.column}
 - rule_description: {row.rule_description}
+- rule_full_description: {row.rule_full_description}
+- rule_precision: {_optional_text(row.rule_precision)}
+- rule_problem_severity: {_optional_text(row.rule_problem_severity)}
+- rule_security_severity: {_optional_text(row.rule_security_severity)}
 - alert_message: {row.message}
+
+CodeQL related locations:
+{_render_related_locations(row)}
+
+CodeQL code flows:
+{_render_code_flows(row)}
 
 The final tool submission must include:
 - verdict: REAL, FALSE_POSITIVE, or UNCERTAIN

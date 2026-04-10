@@ -17,7 +17,7 @@ from agents.mcp import MCPServerStdio
 from openai import AsyncOpenAI
 from openai.types.shared import Reasoning
 
-from ..codeql_csv import CodeQLResultRow
+from ..codeql_sarif import CodeQLResultRow
 from ..config import DEFAULT_CLANGD_PATH, DEFAULT_MCP_SERVER_COMMAND, AppConfig
 from ..logging import logger
 from ..run_artifacts import RunArtifacts

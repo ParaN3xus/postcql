@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from ..codeql_csv import CodeQLResultRow
+from ..codeql_sarif import CodeQLResultRow
 
 
 @dataclass(slots=True)

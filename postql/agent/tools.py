@@ -8,7 +8,7 @@ from typing import Any
 from agents import function_tool
 from pathspec import PathSpec
 
-from ..codeql_csv import CodeQLResultRow
+from ..codeql_sarif import CodeQLResultRow
 from ..report import SingleFindingReport, write_single_finding_report
 from ..run_artifacts import RunArtifacts
 from .prompting import SUBMIT_TRIAGE_REPORT_DOC

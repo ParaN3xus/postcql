@@ -13,9 +13,13 @@ dependencies = [
 [dependency-groups]
 dev = [
     "compiledb>=0.10.7",
+    "datamodel-code-generator>=0.56.0",
     "ruff>=0.15.10",
     "pyright>=1.1.408"
 ]
+
+[tool.ruff]
+exclude = ["postql/sarif_schema_models.py"]
 
 [tool.ruff.lint]
 select = ["E501"]
