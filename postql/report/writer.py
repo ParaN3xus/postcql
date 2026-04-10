@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -53,7 +52,7 @@ def _compile_typst_template(
     output_pdf_path = output_pdf_path.resolve()
     report_json_path = report_json_path.resolve()
     root_dir = template_path.parents[3]
-    report_json_input: str = os.path.relpath(report_json_path, start=template_path.parent)
+    report_json_input: str = report_json_path.read_text(encoding="utf-8")
     completed = subprocess.run(
         [
             typst_command,
