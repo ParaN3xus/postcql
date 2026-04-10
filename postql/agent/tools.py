@@ -16,6 +16,16 @@ DEFAULT_PAGE_SIZE: int = 32
 DEFAULT_SEARCH_RESULTS: int = 32
 
 
+def _read_text_lines(path: Path) -> list[str]:
+    raw_bytes: bytes = path.read_bytes()
+    if b"\x00" in raw_bytes:
+        raise ValueError(f"Refusing to read non-text file: {path}")
+    try:
+        return raw_bytes.decode("utf-8").splitlines()
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"Refusing to read non-UTF-8 text file: {path}") from exc
+
+
 def _resolve_source_path(source_dir: Path, file_path: str) -> Path:
     source_root: Path = source_dir.resolve()
     input_path: Path = Path(file_path)
@@ -56,10 +66,7 @@ def build_read_source_context_tool(source_dir: Path) -> Any:
         if not resolved_path.is_file():
             raise FileNotFoundError(f"Source file not found: {resolved_path}")
 
-        lines: list[str] = resolved_path.read_text(
-            encoding="utf-8",
-            errors="replace",
-        ).splitlines()
+        lines: list[str] = _read_text_lines(resolved_path)
         start_line: int = max(1, center_line - context_lines)
         end_line: int = min(len(lines), center_line + context_lines)
 
@@ -97,10 +104,7 @@ def build_read_source_span_tool(source_dir: Path) -> Any:
         if not resolved_path.is_file():
             raise FileNotFoundError(f"Source file not found: {resolved_path}")
 
-        lines: list[str] = resolved_path.read_text(
-            encoding="utf-8",
-            errors="replace",
-        ).splitlines()
+        lines: list[str] = _read_text_lines(resolved_path)
         bounded_end_line: int = min(len(lines), end_line)
         rendered_lines: list[str] = [
             f"{line_number:6d}: {lines[line_number - 1]}"
@@ -139,10 +143,12 @@ def build_search_source_text_tool(source_dir: Path) -> Any:
             if not fnmatch.fnmatch(relative_path, glob_pattern):
                 continue
 
-            for line_number, line_text in enumerate(
-                path.read_text(encoding="utf-8", errors="replace").splitlines(),
-                start=1,
-            ):
+            try:
+                lines: list[str] = _read_text_lines(path)
+            except ValueError:
+                continue
+
+            for line_number, line_text in enumerate(lines, start=1):
                 if pattern in line_text:
                     matches.append(f"{relative_path}:{line_number}: {line_text}")
         if not matches:
