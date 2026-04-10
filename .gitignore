@@ -13,3 +13,6 @@ wheels/
 /local
 /work
 config.toml
+
+# IDE
+.vscode/launch.json
