@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from agents import function_tool
+from pathspec import PathSpec
 
 from ..codeql_csv import CodeQLResultRow
 from ..report import SingleFindingReport, write_single_finding_report
@@ -14,6 +15,27 @@ from .prompting import SUBMIT_TRIAGE_REPORT_DOC
 
 DEFAULT_PAGE_SIZE: int = 32
 DEFAULT_SEARCH_RESULTS: int = 32
+
+
+def _build_source_ignore_spec(source_dir: Path) -> PathSpec | None:
+    gitignore_path: Path = source_dir / ".gitignore"
+    if not gitignore_path.is_file():
+        return None
+    lines: list[str] = gitignore_path.read_text(encoding="utf-8").splitlines()
+    return PathSpec.from_lines("gitwildmatch", lines)
+
+
+def _is_ignored_by_source_gitignore(
+    path: Path,
+    source_dir: Path,
+    ignore_spec: PathSpec | None,
+) -> bool:
+    if ignore_spec is None:
+        return False
+    relative_path: str = path.relative_to(source_dir).as_posix()
+    if path.is_dir():
+        relative_path += "/"
+    return ignore_spec.match_file(relative_path)
 
 
 def _read_text_lines(path: Path) -> list[str]:
@@ -121,6 +143,8 @@ def build_read_source_span_tool(source_dir: Path) -> Any:
 
 
 def build_search_source_text_tool(source_dir: Path) -> Any:
+    ignore_spec: PathSpec | None = _build_source_ignore_spec(source_dir)
+
     @function_tool
     def search_source_text(
         pattern: str,
@@ -138,6 +162,8 @@ def build_search_source_text_tool(source_dir: Path) -> Any:
         matches: list[str] = []
         for path in sorted(source_dir.rglob("*")):
             if not path.is_file():
+                continue
+            if _is_ignored_by_source_gitignore(path, source_dir, ignore_spec):
                 continue
             relative_path: str = "/" + str(path.relative_to(source_dir))
             if not fnmatch.fnmatch(relative_path, glob_pattern):
@@ -177,6 +203,8 @@ def build_search_source_text_tool(source_dir: Path) -> Any:
 
 
 def build_search_source_files_tool(source_dir: Path) -> Any:
+    ignore_spec: PathSpec | None = _build_source_ignore_spec(source_dir)
+
     @function_tool
     def search_source_files(
         pattern: str,
@@ -194,6 +222,8 @@ def build_search_source_files_tool(source_dir: Path) -> Any:
         matches: list[str] = []
         for path in sorted(source_dir.rglob("*")):
             if not path.is_file():
+                continue
+            if _is_ignored_by_source_gitignore(path, source_dir, ignore_spec):
                 continue
             relative_path: str = "/" + str(path.relative_to(source_dir))
             if normalized_pattern in relative_path.lower():
