@@ -9,3 +9,4 @@ work_dir = "work"
 
 [agent]
 max_turns = 64
+max_concurrency = 4

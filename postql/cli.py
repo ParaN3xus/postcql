@@ -3,8 +3,9 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Sequence
+from typing import List, Sequence
 
 from .agent import analyze_codeql_row_sync
 from .codeql_sarif import CodeQLResultRow, read_codeql_sarif
@@ -81,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _get_row_by_index(rows: list[CodeQLResultRow], row_index: int) -> CodeQLResultRow:
+def _get_row_by_index(rows: List[CodeQLResultRow], row_index: int) -> CodeQLResultRow:
     if row_index < 0 or row_index >= len(rows):
         raise IndexError(f"Row index {row_index} out of range, total rows: {len(rows)}")
     return rows[row_index]
@@ -90,6 +91,13 @@ def _get_row_by_index(rows: list[CodeQLResultRow], row_index: int) -> CodeQLResu
 def _run_placeholder(command_name: str) -> int:
     logger.info("command_not_implemented=%s", command_name)
     return 0
+
+
+def _row_index_from_result(item: dict[str, object]) -> int:
+    row_index: object = item.get("row_index")
+    if not isinstance(row_index, int):
+        raise ValueError(f"Invalid row_index in row result: {row_index!r}")
+    return row_index
 
 
 def _format_optional_text(value: str | None) -> str:
@@ -153,8 +161,9 @@ def _run_analyze_all(
     successful_report_json_paths: list[Path] = []
     row_results: list[dict[str, object]] = []
     logger.info("batch_run_dir=%s", batch_artifacts.run_dir)
+    logger.info("max_concurrency=%s", config.agent.max_concurrency)
 
-    for row in rows:
+    def run_single_row(row: CodeQLResultRow) -> dict[str, object]:
         row_dir: Path = batch_artifacts.run_dir / str(row.row_index)
         row_artifacts: RunArtifacts = RunArtifacts.create_in_dir(
             run_dir=row_dir,
@@ -174,25 +183,33 @@ def _run_analyze_all(
                 test_mode=test_mode,
             )
             report_json_path: Path = row_dir / "report.json"
-            successful_report_json_paths.append(report_json_path)
-            row_results.append(
-                {
-                    "row_index": row.row_index,
-                    "run_dir": row_dir,
-                    "status": "ok",
-                    "report_json": report_json_path,
-                }
-            )
+            return {
+                "row_index": row.row_index,
+                "run_dir": row_dir,
+                "status": "ok",
+                "report_json": report_json_path,
+            }
         except Exception as exc:
             logger.exception("row_analysis_failed row=%s", row.row_index)
-            row_results.append(
-                {
-                    "row_index": row.row_index,
-                    "run_dir": row_dir,
-                    "status": "error",
-                    "error": str(exc),
-                }
-            )
+            return {
+                "row_index": row.row_index,
+                "run_dir": row_dir,
+                "status": "error",
+                "error": str(exc),
+            }
+
+    with ThreadPoolExecutor(max_workers=config.agent.max_concurrency) as executor:
+        future_by_row_index: dict[Future[dict[str, object]], int] = {
+            executor.submit(run_single_row, row): row.row_index for row in rows
+        }
+        for future in as_completed(future_by_row_index):
+            row_result: dict[str, object] = future.result()
+            row_results.append(row_result)
+            report_json: object = row_result.get("report_json")
+            if isinstance(report_json, Path):
+                successful_report_json_paths.append(report_json)
+
+    row_results.sort(key=_row_index_from_result)
 
     full_report_bundle = None
     if successful_report_json_paths:

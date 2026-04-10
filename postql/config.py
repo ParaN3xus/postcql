@@ -20,6 +20,7 @@ class OpenAIConfig:
 @dataclass(slots=True)
 class AgentConfig:
     max_turns: int = 64
+    max_concurrency: int = 4
 
 
 @dataclass(slots=True)
@@ -70,6 +71,15 @@ def _parse_api_mode(value: object) -> Literal["chat_completions", "responses"]:
     raise ValueError(f"Unsupported openai.api_mode: {value!r}")
 
 
+def _parse_positive_int(value: object, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ValueError(f"{field_name} must be an integer")
+    parsed: int = int(value)
+    if parsed < 1:
+        raise ValueError(f"{field_name} must be >= 1")
+    return parsed
+
+
 def load_config(config_path: Path) -> AppConfig:
     data: dict[str, object] = tomllib.loads(config_path.read_text())
 
@@ -89,7 +99,14 @@ def load_config(config_path: Path) -> AppConfig:
             api_mode=_parse_api_mode(openai_data.get("api_mode", "chat_completions")),
         ),
         agent=AgentConfig(
-            max_turns=int(agent_data.get("max_turns", 64)),
+            max_turns=_parse_positive_int(
+                agent_data.get("max_turns", 64),
+                "agent.max_turns",
+            ),
+            max_concurrency=_parse_positive_int(
+                agent_data.get("max_concurrency", 4),
+                "agent.max_concurrency",
+            ),
         ),
         work_dir=work_dir,
     )
