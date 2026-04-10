@@ -176,11 +176,6 @@ async def analyze_codeql_row(
         final_output: str = str(run_result.final_output)
         if artifacts is not None:
             artifacts.write_result(final_output)
-            artifacts.write_run_json(
-                {
-                    "final_output": final_output,
-                }
-            )
         logger.info("analysis_result_row=%s\n%s", row.row_index, final_output)
         return final_output
     except Exception as exc:
