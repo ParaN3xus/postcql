@@ -1,5 +1,9 @@
 #import "template.typ": common-styles, single-report, zebraw
 
+// #let report = json(bytes(sys.inputs.at(
+//   "report_json",
+//   default: read("/work/results/analyze-csv-20260410-123240Z/0/report.json"),
+// )))
 #let report = json(bytes(sys.inputs.at("report_json", default: read("single-example.json"))))
 
 

@@ -226,5 +226,6 @@
 
 #let common-styles(body) = {
   set par(justify: true)
+  set page(numbering: "1")
   body
 }
