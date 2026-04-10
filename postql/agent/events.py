@@ -79,7 +79,6 @@ async def consume_streaming_events(
     artifacts: RunArtifacts | None = None,
 ) -> None:
     tool_names_by_call_id: dict[str, str] = {}
-    final_message_output: str | None = None
 
     async for event in result.stream_events():
         if not isinstance(event, RunItemStreamEvent):
@@ -114,15 +113,10 @@ async def consume_streaming_events(
         ):
             summary = _summarize_message_output_item(event.item)
             logger.debug("message_output=%s", summary)
-            final_message_output = str(summary["message"])
+            if artifacts is not None:
+                artifacts.add_event("message_output", details=summary)
         else:
             summary = _summarize_generic_item(event.item)
             logger.debug("agent_event=%s summary=%s", event.name, summary)
             if artifacts is not None:
                 artifacts.add_event(event.name, details=summary)
-
-    if artifacts is not None and final_message_output is not None:
-        artifacts.add_event(
-            "final_output",
-            details={"message": final_message_output},
-        )

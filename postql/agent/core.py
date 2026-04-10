@@ -178,7 +178,6 @@ async def analyze_codeql_row(
             artifacts.write_result(final_output)
             artifacts.write_run_json(
                 {
-                    "prompt": prompt,
                     "final_output": final_output,
                 }
             )
