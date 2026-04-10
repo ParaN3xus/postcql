@@ -170,6 +170,7 @@ async def analyze_codeql_row(
             agent,
             prompt,
             context=AnalysisContext(row=row, project_root=config.source_dir),
+            max_turns=config.agent.max_turns,
         )
         await consume_streaming_events(run_result, artifacts=artifacts)
         final_output: str = str(run_result.final_output)

@@ -18,8 +18,14 @@ class OpenAIConfig:
 
 
 @dataclass(slots=True)
+class AgentConfig:
+    max_turns: int = 64
+
+
+@dataclass(slots=True)
 class AppConfig:
     openai: OpenAIConfig
+    agent: AgentConfig
     work_dir: Path
 
     @property
@@ -69,6 +75,10 @@ def load_config(config_path: Path) -> AppConfig:
 
     openai_data: dict[str, Any] = _get_table(data, "openai")
     app_data: dict[str, Any] = _get_table(data, "app")
+    agent_data_raw: object = data.get("agent", {})
+    if not isinstance(agent_data_raw, dict):
+        raise ValueError("Invalid [agent] table in config")
+    agent_data: dict[str, Any] = dict(agent_data_raw)
     work_dir: Path = _expand_path(str(app_data["work_dir"])) or Path.cwd()
 
     return AppConfig(
@@ -77,6 +87,9 @@ def load_config(config_path: Path) -> AppConfig:
             base_url=str(openai_data["base_url"]),
             model=str(openai_data["model"]),
             api_mode=_parse_api_mode(openai_data.get("api_mode", "chat_completions")),
+        ),
+        agent=AgentConfig(
+            max_turns=int(agent_data.get("max_turns", 64)),
         ),
         work_dir=work_dir,
     )

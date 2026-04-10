@@ -6,3 +6,6 @@ api_mode = "chat_completions"
 
 [app]
 work_dir = "work"
+
+[agent]
+max_turns = 64
