@@ -80,13 +80,39 @@ validation could not be completed.
 """.strip()
 
 TEST_MODE_GUIDANCE: str = """
-Test mode is enabled. Keep the output format exactly valid for submit_triage_report,
-but do not perform real investigation. Immediately call submit_triage_report with
-fabricated placeholder content that matches the required schema and field constraints.
+Test mode is enabled.
+- Do not perform real investigation.
+- Do not call MCP tools or local source-reading/search tools.
+- Immediately call `submit_triage_report` exactly once.
+- Generate synthetic but schema-valid content for every required field.
+- The output must look like a plausible triage report, but it is
+  intentionally fabricated for testing.
+- Do not default to `uncertain`.
+- Vary the result distribution across rows by deriving fields from `row_index`:
+  verdict = [`real`, `false_positive`, `uncertain`][row_index mod 3]
+  severity = [`low`, `medium`, `high`, `critical`][row_index mod 4]
+- Keep `triggerability` non-`none`.
+- Any `file_path` used in `hypothesis_validation.evidence` or `trigger_path`
+  must be a repository-relative source path such as `magick/utility.c`, never
+  an absolute filesystem path.
+- Keep the other fields logically consistent with the chosen verdict and severity.
 """.strip()
 
 
-def build_agent_instructions() -> str:
+def build_agent_instructions(test_mode: bool = False) -> str:
+    if test_mode:
+        return " ".join(
+            [
+                "You analyze one CodeQL finding at a time.",
+                "The available tools include MCP code inspection tools, "
+                "local source tools, and submit_triage_report.",
+                "In test mode, do not inspect code and do not use any tool "
+                "except submit_triage_report.",
+                "Produce one synthetic structured result and call "
+                "submit_triage_report exactly once.",
+                "Do not end with a normal free-form answer.",
+            ]
+        )
     return " ".join(
         [
             "You analyze one CodeQL finding at a time.",
@@ -130,6 +156,49 @@ def build_triage_prompt_text(
     test_mode: bool = False,
 ) -> str:
     source_path: Path = row.resolved_path(project_root)
+    if test_mode:
+        return f"""
+You are triaging one CodeQL finding against a real C/C++ codebase.
+
+Available tools:
+- MCP language-server tools for code inspection
+- read_source_context
+- read_source_span
+- search_source_text
+- search_source_files
+- submit_triage_report
+
+CodeQL finding:
+- row_index: {row.row_index}
+- rule_name: {row.rule_name}
+- severity: {row.severity}
+- file: {source_path}
+- start_line: {row.start.line}
+- start_column: {row.start.column}
+- end_line: {row.end.line}
+- end_column: {row.end.column}
+- rule_description: {row.rule_description}
+- alert_message: {row.message}
+
+Required submit_triage_report fields:
+- verdict: REAL, FALSE_POSITIVE, or UNCERTAIN
+- severity: low, medium, high, or critical
+- explanation
+- initial_hypothesis
+- hypothesis_validation: a list of validation steps; each step must have a
+  message and may optionally include evidence locations
+- triggerability
+- trigger_path: a list of concrete path steps with file/line info and message
+- impact
+- remediation
+
+Final submission requirement:
+- Do not return a free-form final answer.
+- Call submit_triage_report exactly once.
+{STRUCTURED_OUTPUT_GUIDANCE}
+
+{TEST_MODE_GUIDANCE}
+""".strip()
     prompt: str = f"""
 You are triaging one CodeQL finding against a real C/C++ codebase.
 
@@ -190,6 +259,4 @@ Final submission requirement:
 - When your investigation is complete, call submit_triage_report exactly once.
 {STRUCTURED_OUTPUT_GUIDANCE}
 """.strip()
-    if test_mode:
-        prompt += "\n\n" + TEST_MODE_GUIDANCE
     return prompt
