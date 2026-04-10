@@ -53,6 +53,14 @@ class RunArtifacts:
         if name_suffix:
             run_name = f"{run_name}-{name_suffix}"
         run_dir: Path = results_dir / f"{run_name}-{timestamp}"
+        return cls.create_in_dir(run_dir=run_dir, command_name=command_name)
+
+    @classmethod
+    def create_in_dir(
+        cls,
+        run_dir: Path,
+        command_name: str,
+    ) -> "RunArtifacts":
         run_dir.mkdir(parents=True, exist_ok=False)
         artifacts = cls(
             command_name=command_name,

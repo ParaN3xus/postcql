@@ -9,6 +9,7 @@ from .agent import analyze_codeql_row_sync
 from .codeql_csv import CodeQLResultRow, read_codeql_csv
 from .config import AppConfig, load_config
 from .logging import logger, set_logger_level
+from .report import write_full_report
 from .run_artifacts import RunArtifacts
 
 
@@ -48,7 +49,18 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_row.add_argument(
         "--test-mode",
         action="store_true",
-        help="Append a test-only prompt instruction that immediately submits a fabricated valid report",
+        help="Append a test-only prompt instruction that immediately submits a "
+        "fabricated valid report",
+    )
+    analyze_csv = subparsers.add_parser(
+        "analyze-csv",
+        help="Run the triage agent for every row in the CodeQL CSV",
+    )
+    analyze_csv.add_argument(
+        "--test-mode",
+        action="store_true",
+        help="Append a test-only prompt instruction that immediately "
+        "submits a fabricated valid report",
     )
 
     subparsers.add_parser(
@@ -58,10 +70,6 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "build-database",
         help="Placeholder for future CodeQL database creation command",
-    )
-    subparsers.add_parser(
-        "run-scan",
-        help="Placeholder for future CodeQL scan command",
     )
 
     return parser
@@ -78,6 +86,119 @@ def _run_placeholder(command_name: str) -> int:
     return 0
 
 
+def _run_analyze_row(
+    config: AppConfig,
+    row: CodeQLResultRow,
+    command_name: str,
+    test_mode: bool,
+) -> int:
+    artifacts: RunArtifacts = RunArtifacts.create(
+        results_dir=config.results_dir,
+        command_name=command_name,
+        name_suffix=str(row.row_index),
+    )
+    logger.info(
+        "analyzing row=%s rule=%s file=%s",
+        row.row_index,
+        row.rule_name,
+        row.relative_file_path,
+    )
+    logger.info("run_artifacts_dir=%s", artifacts.run_dir)
+    analyze_codeql_row_sync(
+        config=config,
+        row=row,
+        artifacts=artifacts,
+        test_mode=test_mode,
+    )
+    return 0
+
+
+def _run_analyze_csv(
+    config: AppConfig,
+    rows: list[CodeQLResultRow],
+    test_mode: bool,
+) -> int:
+    batch_artifacts: RunArtifacts = RunArtifacts.create(
+        results_dir=config.results_dir,
+        command_name="analyze-csv",
+    )
+    successful_report_json_paths: list[Path] = []
+    row_results: list[dict[str, object]] = []
+    logger.info("batch_run_dir=%s", batch_artifacts.run_dir)
+
+    for row in rows:
+        row_dir: Path = batch_artifacts.run_dir / str(row.row_index)
+        row_artifacts: RunArtifacts = RunArtifacts.create_in_dir(
+            run_dir=row_dir,
+            command_name="analyze-row",
+        )
+        logger.info(
+            "analyzing row=%s rule=%s file=%s",
+            row.row_index,
+            row.rule_name,
+            row.relative_file_path,
+        )
+        try:
+            analyze_codeql_row_sync(
+                config=config,
+                row=row,
+                artifacts=row_artifacts,
+                test_mode=test_mode,
+            )
+            report_json_path: Path = row_dir / "report.json"
+            successful_report_json_paths.append(report_json_path)
+            row_results.append(
+                {
+                    "row_index": row.row_index,
+                    "run_dir": row_dir,
+                    "status": "ok",
+                    "report_json": report_json_path,
+                }
+            )
+        except Exception as exc:
+            logger.exception("row_analysis_failed row=%s", row.row_index)
+            row_results.append(
+                {
+                    "row_index": row.row_index,
+                    "run_dir": row_dir,
+                    "status": "error",
+                    "error": str(exc),
+                }
+            )
+
+    full_report_bundle = None
+    if successful_report_json_paths:
+        full_report_bundle = write_full_report(
+            output_dir=batch_artifacts.run_dir,
+            report_json_paths=successful_report_json_paths,
+            workspace_dir=config.work_dir,
+        )
+
+    batch_artifacts.write_run_json(
+        {
+            "test_mode": test_mode,
+            "total_rows": len(rows),
+            "successful_rows": len(successful_report_json_paths),
+            "failed_rows": len(rows) - len(successful_report_json_paths),
+            "rows": row_results,
+            "full_report_files": (
+                {
+                    "json": str(full_report_bundle.json_path),
+                    "pdf": str(full_report_bundle.pdf_path)
+                    if full_report_bundle.pdf_generated
+                    else None,
+                    "pdf_generated": full_report_bundle.pdf_generated,
+                    "typst_command": full_report_bundle.typst_command,
+                    "pdf_error": full_report_bundle.pdf_error,
+                }
+                if full_report_bundle is not None
+                else None
+            ),
+        }
+    )
+    return 0 if len(successful_report_json_paths) == len(rows) else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -86,26 +207,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     config: AppConfig = load_config(args.config)
 
     if args.command == "analyze-row":
-        rows: list[CodeQLResultRow] = read_codeql_csv(config.codeql_csv_path)
+        rows = read_codeql_csv(config.codeql_csv_path)
         row: CodeQLResultRow = _get_row_by_index(rows=rows, row_index=args.row_index)
-        artifacts: RunArtifacts = RunArtifacts.create(
-            results_dir=config.results_dir,
-            command_name=args.command,
-            name_suffix=str(row.row_index),
-        )
-        logger.info(
-            "analyzing row=%s rule=%s file=%s",
-            row.row_index,
-            row.rule_name,
-            row.relative_file_path,
-        )
-        logger.info("run_artifacts_dir=%s", artifacts.run_dir)
-        analyze_codeql_row_sync(
+        return _run_analyze_row(
             config=config,
             row=row,
-            artifacts=artifacts,
+            command_name=args.command,
             test_mode=args.test_mode,
         )
-        return 0
+    if args.command == "analyze-csv":
+        rows = read_codeql_csv(config.codeql_csv_path)
+        return _run_analyze_csv(config=config, rows=rows, test_mode=args.test_mode)
 
     return _run_placeholder(args.command)

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import json
 import shutil
 import subprocess
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from ..codeql_csv import CodeQLResultRow
 from .models import SingleFindingReport
@@ -39,10 +40,28 @@ def _template_dir() -> Path:
     return Path(__file__).resolve().parent / "templates"
 
 
+def _workspace_input_path(
+    template_path: Path,
+    workspace_dir: Path,
+) -> tuple[str | None, str | None]:
+    workspace_dir = workspace_dir.resolve()
+    root_dir = template_path.parents[3]
+    try:
+        workspace_relative: Path = workspace_dir.relative_to(root_dir)
+        return "/" + str(workspace_relative), None
+    except ValueError:
+        return (
+            None,
+            f"workspace_dir must be under typst root: "
+            f"workspace_dir={workspace_dir} root={root_dir}",
+        )
+
+
 def _compile_typst_template(
     template_path: Path,
     output_pdf_path: Path,
-    report_json_path: Path,
+    input_name: str,
+    input_json_path: Path,
     workspace_dir: Path,
 ) -> tuple[bool, str | None, str | None]:
     typst_command: str | None = _find_typst_binary()
@@ -51,19 +70,15 @@ def _compile_typst_template(
 
     template_path = template_path.resolve()
     output_pdf_path = output_pdf_path.resolve()
-    report_json_path = report_json_path.resolve()
-    workspace_dir = workspace_dir.resolve()
+    input_json_path = input_json_path.resolve()
     root_dir = template_path.parents[3]
-    try:
-        workspace_relative: Path = workspace_dir.relative_to(root_dir)
-        workspace_input: str = "/" + str(workspace_relative)
-    except ValueError:
-        return (
-            False,
-            typst_command,
-            f"workspace_dir must be under typst root: workspace_dir={workspace_dir} root={root_dir}",
-        )
-    report_json_input: str = report_json_path.read_text(encoding="utf-8")
+    workspace_input, workspace_error = _workspace_input_path(
+        template_path=template_path,
+        workspace_dir=workspace_dir,
+    )
+    if workspace_error is not None or workspace_input is None:
+        return False, typst_command, workspace_error or "invalid workspace input"
+    input_json: str = input_json_path.read_text(encoding="utf-8")
     completed = subprocess.run(
         [
             typst_command,
@@ -73,7 +88,7 @@ def _compile_typst_template(
             "--root",
             str(root_dir),
             "--input",
-            f"report_json={report_json_input}",
+            f"{input_name}={input_json}",
             "--input",
             f"workspace_dir={workspace_input}",
         ],
@@ -119,7 +134,40 @@ def write_single_finding_report(
     pdf_generated, typst_command, pdf_error = _compile_typst_template(
         template_path=_template_dir() / "single-report.typ",
         output_pdf_path=pdf_path,
-        report_json_path=json_path,
+        input_name="report_json",
+        input_json_path=json_path,
+        workspace_dir=workspace_dir,
+    )
+    return ReportBundle(
+        json_path=json_path,
+        pdf_path=pdf_path,
+        pdf_generated=pdf_generated,
+        typst_command=typst_command,
+        pdf_error=pdf_error,
+    )
+
+
+def write_full_report(
+    output_dir: Path,
+    report_json_paths: list[Path],
+    workspace_dir: Path,
+) -> ReportBundle:
+    json_path: Path = output_dir / "full_report.json"
+    pdf_path: Path = output_dir / "full_report.pdf"
+    reports: list[Any] = [
+        json.loads(report_json_path.read_text(encoding="utf-8"))
+        for report_json_path in report_json_paths
+    ]
+    json_path.write_text(
+        json.dumps(reports, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    pdf_generated, typst_command, pdf_error = _compile_typst_template(
+        template_path=_template_dir() / "full_report.typ",
+        output_pdf_path=pdf_path,
+        input_name="reports_json",
+        input_json_path=json_path,
         workspace_dir=workspace_dir,
     )
     return ReportBundle(
