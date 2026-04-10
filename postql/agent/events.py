@@ -15,15 +15,75 @@ from ..logging import logger
 from ..run_artifacts import RunArtifacts
 
 
+def _extract_reasoning_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_extract_reasoning_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _extract_reasoning_value(item) for key, item in value.items()}
+
+    extracted: dict[str, Any] = {}
+    for field_name in ("text", "type", "title", "description", "summary", "content"):
+        field_value: Any = getattr(value, field_name, None)
+        if field_value is not None:
+            extracted[field_name] = _extract_reasoning_value(field_value)
+
+    if extracted:
+        return extracted
+
+    model_dump: Any = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return _extract_reasoning_value(model_dump(mode="json"))
+        except TypeError:
+            return _extract_reasoning_value(model_dump())
+
+    return str(value)
+
+
 def _summarize_reasoning_item(item: ReasoningItem) -> dict[str, Any]:
     raw_item: Any = item.raw_item
     summary: Any = getattr(raw_item, "summary", None)
     content: Any = getattr(raw_item, "content", None)
     summarized: dict[str, Any] = {}
     if summary is not None:
-        summarized["summary"] = str(summary)
+        extracted_summary: Any = _extract_reasoning_value(summary)
+        if isinstance(extracted_summary, list):
+            text_parts: list[str] = []
+            types: list[str] = []
+            for entry in extracted_summary:
+                if isinstance(entry, dict):
+                    text = entry.get("text")
+                    entry_type = entry.get("type")
+                    if isinstance(text, str) and text:
+                        text_parts.append(text)
+                    if isinstance(entry_type, str) and entry_type:
+                        types.append(entry_type)
+            if text_parts:
+                summarized["text"] = "\n\n".join(text_parts)
+            unique_types: list[str] = list(dict.fromkeys(types))
+            if len(unique_types) == 1:
+                summarized["type"] = unique_types[0]
+            elif unique_types:
+                summarized["types"] = unique_types
+            if not summarized:
+                summarized["summary"] = extracted_summary
+        elif isinstance(extracted_summary, dict):
+            for key, value in extracted_summary.items():
+                summarized[key] = value
+        else:
+            summarized["summary"] = extracted_summary
     if content is not None:
-        summarized["content"] = str(content)
+        extracted_content: Any = _extract_reasoning_value(content)
+        if isinstance(extracted_content, dict):
+            for key, value in extracted_content.items():
+                if key not in summarized:
+                    summarized[key] = value
+                else:
+                    summarized[f"content_{key}"] = value
+        else:
+            summarized["content"] = extracted_content
     if summarized:
         return summarized
     return {"raw_item": str(raw_item)}
