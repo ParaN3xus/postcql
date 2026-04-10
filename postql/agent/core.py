@@ -27,6 +27,7 @@ from .tools import (
     build_read_source_span_tool,
     build_search_source_files_tool,
     build_search_source_text_tool,
+    build_submit_triage_report_tool,
 )
 
 
@@ -72,7 +73,10 @@ def build_mcp_server(config: AppConfig) -> MCPServerStdio:
     )
 
 
-def build_triage_prompt(row: CodeQLResultRow, project_root: Path) -> str:
+def build_triage_prompt(
+    row: CodeQLResultRow,
+    project_root: Path,
+) -> str:
     source_path: Path = row.resolved_path(project_root)
     return f"""
 You are triaging one CodeQL finding against a real C/C++ codebase.
@@ -126,17 +130,46 @@ CodeQL finding:
 - rule_description: {row.rule_description}
 - alert_message: {row.message}
 
-You must produce:
-1. verdict: REAL, FALSE_POSITIVE, or UNCERTAIN
-2. initial hypothesis for the suspicious condition CodeQL appears to have inferred
-3. whether that hypothesis actually holds in this codebase, with evidence
-4. whether the behavior is reachable/triggerable in practice, with concrete code evidence
-5. if triggerable: a concrete possible trigger path, severity,
-   impact, and a high-level remediation idea
-6. deep semantic explanation of why the code is safe or unsafe in practice
-7. list of key code locations you relied on
+The final tool submission must include:
+- verdict: REAL, FALSE_POSITIVE, or UNCERTAIN
+- severity: low, medium, high, or critical
+- explanation
+- initial_hypothesis
+- hypothesis_validation: a list of validation steps; each step must have a
+  message and may optionally include evidence locations
+- triggerability
+- trigger_path: a list of concrete path steps with file/line info and message
+- impact
+- remediation
 
 Keep the answer technical and specific to the codebase.
+
+Final submission requirement:
+- Do not return a free-form final answer.
+- When your investigation is complete, call submit_triage_report exactly once.
+- `explanation`, `initial_hypothesis`, and `triggerability` are always required.
+- `hypothesis_validation` is always required and should normally be a structured
+  sequence of validation steps. Each step must contain a clear conclusion in
+  prose, and may optionally attach one or more code evidence locations. Use
+  `none` only if you genuinely could not obtain enough code evidence to validate
+  the hypothesis.
+- `trigger_path` may be `none` when the behavior is not realistically
+  triggerable, when the verdict is FALSE_POSITIVE, or when the evidence is too
+  incomplete to claim a concrete execution path.
+- `impact` may be `none` when there is no realistic attacker-reachable unsafe
+  behavior to describe.
+- `remediation` may be `none` when there is no concrete vulnerability to fix,
+  such as a clear FALSE_POSITIVE with no underlying bug.
+- Do not use `none` for convenience. Only use it when the field is genuinely
+  not applicable to the final verdict or unsupported by the code evidence.
+- hypothesis_validation must be a structured sequence of validation steps, not
+  one free-form paragraph.
+- Use hypothesis_validation to prove or disprove the initial hypothesis directly
+  from the code. For false positives, show the exact guards, missing reachability,
+  or contradictory call-flow evidence that blocks the issue. Not every step
+  needs an attached code location, but attach evidence where it materially
+  strengthens the claim.
+- trigger_path must be a structured sequence of path steps, not one free-form paragraph.
 """.strip()
 
 
@@ -145,12 +178,20 @@ async def analyze_codeql_row(
     row: CodeQLResultRow,
     artifacts: RunArtifacts | None = None,
 ) -> str:
+    if artifacts is None:
+        raise ValueError(
+            "artifacts is required; analysis must end via submit_triage_report"
+        )
+
     configure_openai_client(config)
     mcp_server: MCPServerStdio = build_mcp_server(config)
     read_source_context_tool: Any = build_read_source_context_tool(config.source_dir)
     read_source_span_tool: Any = build_read_source_span_tool(config.source_dir)
     search_source_text_tool: Any = build_search_source_text_tool(config.source_dir)
     search_source_files_tool: Any = build_search_source_files_tool(config.source_dir)
+    submit_triage_report_tool: Any = build_submit_triage_report_tool(
+        row=row, artifacts=artifacts
+    )
     await mcp_server.connect()
 
     try:
@@ -170,36 +211,49 @@ async def analyze_codeql_row(
                 "alert looks suspicious, validate that hypothesis against the "
                 "real code path, and if it does not hold, still evaluate "
                 "whether the code is unsafe in some other realistic context. "
+                "Write hypothesis_validation as structured validation steps: "
+                "each step needs a message, and evidence locations are optional "
+                "but encouraged when they materially support the claim. "
                 "Decide whether the finding is real, false positive, or uncertain. "
-                "If real, explain trigger path, severity, "
-                "and high-level remediation without code."
+                "Triggerability is always required and must never be `none`. "
+                "Only use the literal string `none` for fields that are truly "
+                "not applicable to the final verdict or unsupported by the code "
+                "evidence, especially trigger_path, impact, and remediation. "
+                "When the investigation is complete, call submit_triage_report "
+                "exactly once with the final structured result. "
+                "Do not end with a normal free-form answer."
             ),
             tools=[
                 read_source_context_tool,
                 read_source_span_tool,
                 search_source_text_tool,
                 search_source_files_tool,
+                submit_triage_report_tool,
             ],
             mcp_servers=[mcp_server],
             model=config.openai.model,
             model_settings=ModelSettings(
+                tool_choice="required",
                 reasoning=Reasoning(effort="medium"),
             ),
+            tool_use_behavior={"stop_at_tool_names": ["submit_triage_report"]},
         )
 
-        prompt: str = build_triage_prompt(row=row, project_root=config.source_dir)
-        if artifacts is not None:
-            artifacts.add_section(
-                "Run Metadata",
-                {
-                    "row_index": row.row_index,
-                    "rule_name": row.rule_name,
-                    "severity": row.severity,
-                    "file": row.relative_file_path,
-                    "work_dir": config.work_dir,
-                },
-            )
-            artifacts.add_section("Prompt", {"text": prompt})
+        prompt: str = build_triage_prompt(
+            row=row,
+            project_root=config.source_dir,
+        )
+        artifacts.add_section(
+            "Run Metadata",
+            {
+                "row_index": row.row_index,
+                "rule_name": row.rule_name,
+                "severity": row.severity,
+                "file": row.relative_file_path,
+                "work_dir": config.work_dir,
+            },
+        )
+        artifacts.add_section("Prompt", {"text": prompt})
 
         run_result = Runner.run_streamed(
             agent,
@@ -209,19 +263,29 @@ async def analyze_codeql_row(
         )
         await consume_streaming_events(run_result, artifacts=artifacts)
         final_output: str = str(run_result.final_output)
-        if artifacts is not None:
-            artifacts.write_result(final_output)
+        artifacts.write_run_json({"final_output": final_output})
+        if not final_output.strip():
+            raise RuntimeError(
+                "Agent finished without any final output; submit_triage_report was likely not called."
+            )
+        if "structured_report" not in artifacts._payload:
+            raise RuntimeError(
+                "Agent finished without structured_report; submit_triage_report was not completed."
+            )
+        if "report_files" not in artifacts._payload:
+            raise RuntimeError(
+                "Agent finished without report_files; report artifacts were not generated."
+            )
         logger.info("analysis_result_row=%s\n%s", row.row_index, final_output)
         return final_output
     except Exception as exc:
-        if artifacts is not None:
-            artifacts.add_section("Error", {"message": str(exc)})
-            artifacts.write_run_json(
-                {
-                    "row": row,
-                    "error": str(exc),
-                }
-            )
+        artifacts.add_section("Error", {"message": str(exc)})
+        artifacts.write_run_json(
+            {
+                "row": row,
+                "error": str(exc),
+            }
+        )
         raise
     finally:
         await mcp_server.cleanup()

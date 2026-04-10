@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import fnmatch
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 from agents import function_tool
+
+from ..codeql_csv import CodeQLResultRow
+from ..report import SingleFindingReport, write_single_finding_report
+from ..run_artifacts import RunArtifacts
 
 DEFAULT_PAGE_SIZE: int = 32
 DEFAULT_SEARCH_RESULTS: int = 32
@@ -208,3 +213,60 @@ def build_search_source_files_tool(source_dir: Path) -> Any:
         return header + "\n" + "\n".join(page_matches)
 
     return search_source_files
+
+
+def build_submit_triage_report_tool(
+    row: CodeQLResultRow,
+    artifacts: RunArtifacts,
+) -> Any:
+    @function_tool
+    def submit_triage_report(report: SingleFindingReport) -> str:
+        """Submit the final structured triage report for this finding.
+
+        `triggerability` is mandatory and must never be `none`.
+        Use the literal string `none` only for fields that are genuinely not
+        applicable to the final verdict or unsupported by code evidence.
+        In practice this usually applies to `trigger_path`, `impact`, and
+        `remediation`; use it for `hypothesis_validation` only when code
+        validation could not be completed.
+        """
+        bundle = write_single_finding_report(
+            output_dir=artifacts.run_dir,
+            row=row,
+            report=report,
+        )
+        artifacts.write_run_json(
+            {
+                "structured_report": asdict(
+                    SingleFindingReport(
+                        verdict=report.verdict,
+                        severity=report.severity,
+                        explanation=report.explanation,
+                        initial_hypothesis=report.initial_hypothesis,
+                        hypothesis_validation=report.hypothesis_validation,
+                        triggerability=report.triggerability,
+                        trigger_path=report.trigger_path,
+                        impact=report.impact,
+                        remediation=report.remediation,
+                        raw_row=row,
+                    )
+                ),
+                "report_files": {
+                    "json": str(bundle.json_path),
+                    "pdf": str(bundle.pdf_path) if bundle.pdf_generated else None,
+                    "pdf_generated": bundle.pdf_generated,
+                    "typst_command": bundle.typst_command,
+                    "pdf_error": bundle.pdf_error,
+                },
+            }
+        )
+        pdf_status: str = (
+            str(bundle.pdf_path) if bundle.pdf_generated else "not_generated"
+        )
+        return (
+            "Structured triage report submitted.\n"
+            f"report_json={bundle.json_path}\n"
+            f"report_pdf={pdf_status}"
+        )
+
+    return submit_triage_report

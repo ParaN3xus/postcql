@@ -36,7 +36,6 @@ def _to_json_compatible(value: Any) -> Any:
 class RunArtifacts:
     command_name: str
     run_dir: Path
-    result_markdown_path: Path
     run_json_path: Path
     _sections: list[dict[str, Any]]
     _events: list[dict[str, Any]]
@@ -58,7 +57,6 @@ class RunArtifacts:
         artifacts = cls(
             command_name=command_name,
             run_dir=run_dir,
-            result_markdown_path=run_dir / "result.md",
             run_json_path=run_dir / "run.json",
             _sections=[],
             _events=[],
@@ -103,13 +101,6 @@ class RunArtifacts:
             event_payload["details"] = _to_json_compatible(details)
         self._events.append(event_payload)
         self._flush_run_json()
-
-    def write_result(self, final_output: str) -> None:
-        self.result_markdown_path.write_text(
-            final_output.rstrip() + "\n",
-            encoding="utf-8",
-        )
-        self.write_run_json({"final_output": final_output})
 
     def write_run_json(self, payload: dict[str, Any]) -> None:
         self._payload.update(_to_json_compatible(payload))

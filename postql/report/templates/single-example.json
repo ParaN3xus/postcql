@@ -1,0 +1,103 @@
+{
+  "verdict": "real",
+  "severity": "medium",
+  "explanation": "In `InterpretImageProperties`, if the supplied `embed_text` begins with `@`, the code treats the remainder as a filename and directly loads that file into memory: `if ((*p == '@') && (IsPathAccessible(p+1) != MagickFalse)) interpret_text=FileToString(p+1,~0UL,&image->exception);` (`magick/property.c:3336-3340`). `IsPathAccessible` only checks that the path is non-empty, refers to an existing regular file, and passes `access(F_OK)` (`magick/utility.c:1439-1449`); it does not restrict the directory, canonicalize the path, or consult ImageMagick path policy. `FileToString` immediately calls `FileToBlob`, which opens the path with `open_utf8/open` (`magick/string.c:979-987`, `magick/blob.c:987-989`, `magick/utility-private.h:153-156`). This makes the alert a real arbitrary local file read / path traversal sink for any attacker-controlled `embed_text` that reaches this function.",
+  "initial_hypothesis": "The suspicious behavior is the `@file` expansion in `InterpretImageProperties`: if the property string starts with `@`, ImageMagick appears to treat the rest as a path and load the file contents. Because `embed_text` can originate from command-line arguments and other user-controlled inputs, this likely creates an arbitrary local file read/path traversal issue unless there is a stronger authorization check elsewhere.",
+  "hypothesis_validation": [
+    {
+      "message": "The local guard on the `@file` branch is too weak to defeat the hypothesis: `IsPathAccessible(p+1)` only checks basic file existence and regular-file status, not path authorization or sanitization.",
+      "evidence": [
+        {
+          "file_path": "magick/utility.c",
+          "start_line": 1439,
+          "message": "`IsPathAccessible` confirms existence and regular-file status, but does not enforce a path policy check.",
+          "end_line": 1449
+        }
+      ]
+    },
+    {
+      "message": "A stronger authorization mechanism exists elsewhere in the codebase, which makes the missing protection in this path more concrete rather than hypothetical.",
+      "evidence": [
+        {
+          "file_path": "magick/blob.c",
+          "start_line": 2490,
+          "message": "Normal blob/image file access goes through `IsRightsAuthorized(PathPolicyDomain, rights, filename)` before opening the file.",
+          "end_line": 2498
+        }
+      ]
+    },
+    {
+      "message": "The suspicious condition is reachable in ordinary execution because real call sites feed user-derived text into `InterpretImageProperties`.",
+      "evidence": [
+        {
+          "file_path": "coders/caption.c",
+          "start_line": 144,
+          "message": "Caption handling passes user-controlled filename or option-derived text into `InterpretImageProperties`.",
+          "end_line": 151
+        }
+      ]
+    },
+    {
+      "message": "The reachability is not limited to one CLI path; script-driven execution also routes attacker-influenced values into the same sink.",
+      "evidence": [
+        {
+          "file_path": "coders/msl.c",
+          "start_line": 702,
+          "message": "MSL-driven execution routes XML attribute values through `InterpretImageProperties`.",
+          "end_line": 704
+        }
+      ]
+    }
+  ],
+  "triggerability": "Triggerable in practice. A user can supply strings such as `caption:@/etc/passwd`, `label:@/path/to/file`, or equivalent option values that reach `InterpretImageProperties`. The only blocking conditions are that the target must be an existing regular file and be readable by the ImageMagick process. There is no path authorization check in this code path comparable to the normal `PathPolicyDomain` enforcement shown elsewhere in `magick/blob.c`. Script-driven contexts such as MSL also route attacker-controlled XML attributes through the same function, widening reachability.",
+  "trigger_path": [
+    {
+      "file_path": "utilities/convert.c",
+      "start_line": 69,
+      "message": "CLI entrypoint passes attacker-controlled argv into ImageMagick command processing via `MagickCommandGenesis(..., argc, argv, ...)`.",
+      "end_line": 84
+    },
+    {
+      "file_path": "coders/caption.c",
+      "start_line": 144,
+      "message": "Caption decoder uses user-controlled filename/option text as the `embed_text` argument to `InterpretImageProperties` when formatting caption content.",
+      "end_line": 146
+    },
+    {
+      "file_path": "magick/property.c",
+      "start_line": 3336,
+      "message": "If `embed_text` begins with `@` and the referenced path exists, `InterpretImageProperties` calls `FileToString(p+1, ...)` and returns the file contents.",
+      "end_line": 3340
+    },
+    {
+      "file_path": "magick/string.c",
+      "start_line": 979,
+      "message": "`FileToString` forwards the attacker-chosen path to `FileToBlob`.",
+      "end_line": 987
+    },
+    {
+      "file_path": "magick/blob.c",
+      "start_line": 987,
+      "message": "`FileToBlob` opens the supplied path with `open_utf8(filename, O_RDONLY|O_BINARY, 0)`.",
+      "end_line": 989
+    }
+  ],
+  "impact": "An attacker who can influence these property strings can cause ImageMagick to read arbitrary local regular files accessible to the running process. The file contents are then used as the interpreted property/caption/label text, enabling local file disclosure and potentially leakage of secrets (configuration, keys, tokens, system files). The impact is bounded to files the process can read and to contexts where the resulting text is exposed back to the attacker or otherwise observable, but that is a common and realistic usage pattern for conversion/rendering services.",
+  "remediation": "Do not allow raw `@path` expansion on attacker-controlled property strings. At minimum, gate this path through the same policy mechanism used for normal blob/image file access (`IsRightsAuthorized(PathPolicyDomain, ReadPolicyRights, ...)`) before calling `FileToString`. Preferably disable `@file` expansion entirely for untrusted inputs, or restrict it to a configured safe directory after canonicalization. If this syntax must remain, add explicit allowlisting and reject absolute paths, `..` traversal, and symlink escapes as appropriate.",
+  "raw_row": {
+    "row_index": 214,
+    "rule_name": "Uncontrolled data used in path expression",
+    "rule_description": "Accessing paths influenced by users can allow an attacker to access unexpected resources.",
+    "severity": "warning",
+    "message": "This argument to a file access function is derived from [[\"user input (buffer read by read)\"|\"relative:///magick/blob.c:1015:25:1015:30\"]] and then passed to FileToString(filename), which calls FileToBlob(filename), which calls open_utf8(path), which calls open(__file).\nThis argument to a file access function is derived from [[\"user input (buffer read by read)\"|\"relative:///magick/blob.c:1074:25:1074:30\"]] and then passed to FileToString(filename), which calls FileToBlob(filename), which calls open_utf8(path), which calls open(__file).\nThis argument to a file access function is derived from [[\"user input (a command-line argument)\"|\"relative:///utilities/animate.c:93:26:93:29\"]] and then passed to FileToString(filename), which calls FileToBlob(filename), which calls open_utf8(path), which calls open(__file).\nThis argument to a file access function is derived from [[\"user input (a command-line argument)\"|\"relative:///utilities/compare.c:99:26:99:29\"]] and then passed to FileToString(filename), which calls FileToBlob(filename), which calls open_utf8(path), which calls open(__file).\nThis argument to a file access function is derived from [[\"user input (a command-line argument)\"|\"relative:///utilities/composite.c:84:26:84:29\"]] and then passed to FileToString(filename), which calls FileToBlob(filename), which calls open_utf8(path), which calls open(__file).\nThis argument to a file access function is derived from [[\"user input (a command-line argument)\"|\"relative:///utilities/conjure.c:103:26:103:29\"]] and then passed to FileToString(filename), which calls FileToBlob(filename), which calls open_utf8(path), which calls open(__file).\nThis argument to a file access function is derived from [[\"user input (a command-line argument)\"|\"relative:///utilities/convert.c:90:26:90:29\"]] and then passed to FileToString(filename), which calls FileToBlob(filename), which calls open_utf8(path), which calls open(__file).\nThis argument to a file access function is derived from [[\"user input (a command-line argument)\"|\"relative:///utilities/display.c:98:26:98:29\"]] and then passed to FileToString(filename), which calls FileToBlob(filename), which calls open_utf8(path), which calls open(__file).\nThis argument to a file access function is derived from [[\"user input (a command-line argument)\"|\"relative:///utilities/identify.c:91:26:91:29\"]] and then passed to FileToString(filename), which calls FileToBlob(filename), which calls open_utf8(path), which calls open(__file).\nThis argument to a file access function is derived from [[\"user input (a command-line argument)\"|\"relative:///utilities/import.c:90:26:90:29\"]] and then passed to FileToString(filename), which calls FileToBlob(filename), which calls open_utf8(path), which calls open(__file).\nThis argument to a file access function is derived from [[\"user input (a command-line argument)\"|\"relative:///utilities/mogrify.c:86:26:86:29\"]] and then passed to FileToString(filename), which calls FileToBlob(filename), which calls open_utf8(path), which calls open(__file).\nThis argument to a file access function is derived from [[\"user input (a command-line argument)\"|\"relative:///utilities/montage.c:86:26:86:29\"]] and then passed to FileToString(filename), which calls FileToBlob(filename), which calls open_utf8(path), which calls open(__file).\nThis argument to a file access function is derived from [[\"user input (a command-line argument)\"|\"relative:///utilities/stream.c:86:26:86:29\"]] and then passed to FileToString(filename), which calls FileToBlob(filename), which calls open_utf8(path), which calls open(__file).",
+    "relative_file_path": "/magick/property.c",
+    "start": {
+      "line": 3329,
+      "column": 35
+    },
+    "end": {
+      "line": 3329,
+      "column": 37
+    }
+  }
+}
