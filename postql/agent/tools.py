@@ -6,6 +6,9 @@ from typing import Any
 
 from agents import function_tool
 
+DEFAULT_PAGE_SIZE: int = 32
+DEFAULT_SEARCH_RESULTS: int = 32
+
 
 def _resolve_source_path(source_dir: Path, file_path: str) -> Path:
     source_root: Path = source_dir.resolve()
@@ -20,6 +23,11 @@ def _resolve_source_path(source_dir: Path, file_path: str) -> Path:
     except ValueError as exc:
         raise ValueError(f"File path escapes source dir: {file_path}") from exc
     return resolved_path
+
+
+def _validate_page_size(value: int, field_name: str) -> None:
+    if value < 1:
+        raise ValueError(f"{field_name} must be >= 1")
 
 
 def build_read_source_context_tool(source_dir: Path) -> Any:
@@ -65,7 +73,11 @@ def build_read_source_context_tool(source_dir: Path) -> Any:
 
 def build_read_source_span_tool(source_dir: Path) -> Any:
     @function_tool
-    def read_source_span(file_path: str, start_line: int, end_line: int) -> str:
+    def read_source_span(
+        file_path: str,
+        start_line: int,
+        end_line: int,
+    ) -> str:
         """Read an explicit source line range from the configured source directory."""
         if start_line < 1:
             raise ValueError("start_line must be >= 1")
@@ -103,13 +115,15 @@ def build_search_source_text_tool(source_dir: Path) -> Any:
     def search_source_text(
         pattern: str,
         glob_pattern: str = "*",
-        max_results: int = 50,
+        page_offset: int = 0,
+        page_size: int = DEFAULT_SEARCH_RESULTS,
     ) -> str:
-        """Search source files for plain text and return matching lines."""
+        """Search source files for plain text and return paged matching lines."""
         if not pattern:
             raise ValueError("pattern must not be empty")
-        if max_results < 1:
-            raise ValueError("max_results must be >= 1")
+        if page_offset < 0:
+            raise ValueError("page_offset must be >= 0")
+        _validate_page_size(page_size, "page_size")
 
         matches: list[str] = []
         for path in sorted(source_dir.rglob("*")):
@@ -125,24 +139,44 @@ def build_search_source_text_tool(source_dir: Path) -> Any:
             ):
                 if pattern in line_text:
                     matches.append(f"{relative_path}:{line_number}: {line_text}")
-                    if len(matches) >= max_results:
-                        return "\n".join(matches)
+        if not matches:
+            return "No matches found."
 
-        if matches:
-            return "\n".join(matches)
-        return "No matches found."
+        if page_offset >= len(matches):
+            raise ValueError("page_offset is out of range for search results")
+        page_matches: list[str] = matches[page_offset : page_offset + page_size]
+        has_more: bool = page_offset + page_size < len(matches)
+        next_offset: int | None = None
+        if has_more:
+            next_offset = page_offset + len(page_matches)
+        header: str = (
+            f"pattern={pattern}\n"
+            f"glob_pattern={glob_pattern}\n"
+            f"total_matches={len(matches)}\n"
+            f"page_offset={page_offset}\n"
+            f"page_size={page_size}\n"
+            f"returned_matches={len(page_matches)}\n"
+            f"has_more={has_more}\n"
+            f"next_offset={next_offset}"
+        )
+        return header + "\n" + "\n".join(page_matches)
 
     return search_source_text
 
 
 def build_search_source_files_tool(source_dir: Path) -> Any:
     @function_tool
-    def search_source_files(pattern: str, max_results: int = 50) -> str:
-        """Search source-relative file paths by substring."""
+    def search_source_files(
+        pattern: str,
+        page_offset: int = 0,
+        page_size: int = DEFAULT_SEARCH_RESULTS,
+    ) -> str:
+        """Search source-relative file paths by substring, with paging."""
         if not pattern:
             raise ValueError("pattern must not be empty")
-        if max_results < 1:
-            raise ValueError("max_results must be >= 1")
+        if page_offset < 0:
+            raise ValueError("page_offset must be >= 0")
+        _validate_page_size(page_size, "page_size")
 
         normalized_pattern: str = pattern.lower()
         matches: list[str] = []
@@ -152,11 +186,25 @@ def build_search_source_files_tool(source_dir: Path) -> Any:
             relative_path: str = "/" + str(path.relative_to(source_dir))
             if normalized_pattern in relative_path.lower():
                 matches.append(relative_path)
-                if len(matches) >= max_results:
-                    break
+        if not matches:
+            return "No files found."
 
-        if matches:
-            return "\n".join(matches)
-        return "No files found."
+        if page_offset >= len(matches):
+            raise ValueError("page_offset is out of range for file search results")
+        page_matches: list[str] = matches[page_offset : page_offset + page_size]
+        has_more: bool = page_offset + page_size < len(matches)
+        next_offset: int | None = None
+        if has_more:
+            next_offset = page_offset + len(page_matches)
+        header: str = (
+            f"pattern={pattern}\n"
+            f"total_matches={len(matches)}\n"
+            f"page_offset={page_offset}\n"
+            f"page_size={page_size}\n"
+            f"returned_matches={len(page_matches)}\n"
+            f"has_more={has_more}\n"
+            f"next_offset={next_offset}"
+        )
+        return header + "\n" + "\n".join(page_matches)
 
     return search_source_files

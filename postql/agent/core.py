@@ -81,6 +81,8 @@ Primary requirements:
 - Use read_source_span when you already know the exact range to inspect.
 - Use search_source_text for grep-like repository text search.
 - Use search_source_files to locate candidate files by filename/path.
+- Some local source tools support pagination. Prefer small pages first and only
+  request additional pages when the prior result indicates more content is needed.
 - Start from the alert location using hover, diagnostics, references,
   and any other relevant tools.
 - Determine whether the CodeQL alert is a real vulnerability in practice,
