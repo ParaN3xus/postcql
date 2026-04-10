@@ -10,6 +10,7 @@ from agents import function_tool
 from ..codeql_csv import CodeQLResultRow
 from ..report import SingleFindingReport, write_single_finding_report
 from ..run_artifacts import RunArtifacts
+from .prompting import SUBMIT_TRIAGE_REPORT_DOC
 
 DEFAULT_PAGE_SIZE: int = 32
 DEFAULT_SEARCH_RESULTS: int = 32
@@ -219,17 +220,8 @@ def build_submit_triage_report_tool(
     row: CodeQLResultRow,
     artifacts: RunArtifacts,
 ) -> Any:
-    @function_tool
     def submit_triage_report(report: SingleFindingReport) -> str:
-        """Submit the final structured triage report for this finding.
-
-        `triggerability` is mandatory and must never be `none`.
-        Use the literal string `none` only for fields that are genuinely not
-        applicable to the final verdict or unsupported by code evidence.
-        In practice this usually applies to `trigger_path`, `impact`, and
-        `remediation`; use it for `hypothesis_validation` only when code
-        validation could not be completed.
-        """
+        """Submit the final structured triage report for this finding."""
         bundle = write_single_finding_report(
             output_dir=artifacts.run_dir,
             row=row,
@@ -269,4 +261,5 @@ def build_submit_triage_report_tool(
             f"report_pdf={pdf_status}"
         )
 
-    return submit_triage_report
+    submit_triage_report.__doc__ = SUBMIT_TRIAGE_REPORT_DOC
+    return function_tool(submit_triage_report)
