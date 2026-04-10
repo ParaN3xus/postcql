@@ -79,6 +79,12 @@ In practice this usually applies to `trigger_path`, `impact`, and
 validation could not be completed.
 """.strip()
 
+TEST_MODE_GUIDANCE: str = """
+Test mode is enabled. Keep the output format exactly valid for submit_triage_report,
+but do not perform real investigation. Immediately call submit_triage_report with
+fabricated placeholder content that matches the required schema and field constraints.
+""".strip()
+
 
 def build_agent_instructions() -> str:
     return " ".join(
@@ -121,9 +127,10 @@ def build_agent_instructions() -> str:
 def build_triage_prompt_text(
     row: CodeQLResultRow,
     project_root: Path,
+    test_mode: bool = False,
 ) -> str:
     source_path: Path = row.resolved_path(project_root)
-    return f"""
+    prompt: str = f"""
 You are triaging one CodeQL finding against a real C/C++ codebase.
 
 Primary requirements:
@@ -183,3 +190,6 @@ Final submission requirement:
 - When your investigation is complete, call submit_triage_report exactly once.
 {STRUCTURED_OUTPUT_GUIDANCE}
 """.strip()
+    if test_mode:
+        prompt += "\n\n" + TEST_MODE_GUIDANCE
+    return prompt

@@ -45,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="0-based row index in the CodeQL CSV",
     )
+    analyze_row.add_argument(
+        "--test-mode",
+        action="store_true",
+        help="Append a test-only prompt instruction that immediately submits a fabricated valid report",
+    )
 
     subparsers.add_parser(
         "setup",
@@ -95,7 +100,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             row.relative_file_path,
         )
         logger.info("run_artifacts_dir=%s", artifacts.run_dir)
-        analyze_codeql_row_sync(config=config, row=row, artifacts=artifacts)
+        analyze_codeql_row_sync(
+            config=config,
+            row=row,
+            artifacts=artifacts,
+            test_mode=args.test_mode,
+        )
         return 0
 
     return _run_placeholder(args.command)

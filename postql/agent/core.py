@@ -77,14 +77,20 @@ def build_mcp_server(config: AppConfig) -> MCPServerStdio:
 def build_triage_prompt(
     row: CodeQLResultRow,
     project_root: Path,
+    test_mode: bool = False,
 ) -> str:
-    return build_triage_prompt_text(row=row, project_root=project_root)
+    return build_triage_prompt_text(
+        row=row,
+        project_root=project_root,
+        test_mode=test_mode,
+    )
 
 
 async def analyze_codeql_row(
     config: AppConfig,
     row: CodeQLResultRow,
     artifacts: RunArtifacts | None = None,
+    test_mode: bool = False,
 ) -> str:
     if artifacts is None:
         raise ValueError(
@@ -127,6 +133,7 @@ async def analyze_codeql_row(
         prompt: str = build_triage_prompt(
             row=row,
             project_root=config.source_dir,
+            test_mode=test_mode,
         )
         artifacts.add_section(
             "Run Metadata",
@@ -136,6 +143,7 @@ async def analyze_codeql_row(
                 "severity": row.severity,
                 "file": row.relative_file_path,
                 "work_dir": config.work_dir,
+                "test_mode": test_mode,
             },
         )
         artifacts.add_section("Prompt", {"text": prompt})
@@ -183,5 +191,13 @@ def analyze_codeql_row_sync(
     config: AppConfig,
     row: CodeQLResultRow,
     artifacts: RunArtifacts | None = None,
+    test_mode: bool = False,
 ) -> str:
-    return asyncio.run(analyze_codeql_row(config=config, row=row, artifacts=artifacts))
+    return asyncio.run(
+        analyze_codeql_row(
+            config=config,
+            row=row,
+            artifacts=artifacts,
+            test_mode=test_mode,
+        )
+    )
