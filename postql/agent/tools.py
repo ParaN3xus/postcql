@@ -8,9 +8,13 @@ from agents import function_tool
 
 
 def _resolve_source_path(source_dir: Path, file_path: str) -> Path:
-    normalized_relative_path: str = file_path.lstrip("/")
-    resolved_path: Path = (source_dir / normalized_relative_path).resolve()
     source_root: Path = source_dir.resolve()
+    input_path: Path = Path(file_path)
+    if input_path.is_absolute():
+        resolved_path: Path = input_path.resolve()
+    else:
+        normalized_relative_path: str = file_path.lstrip("/")
+        resolved_path = (source_dir / normalized_relative_path).resolve()
     try:
         resolved_path.relative_to(source_root)
     except ValueError as exc:
