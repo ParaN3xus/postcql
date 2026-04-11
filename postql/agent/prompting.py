@@ -23,6 +23,23 @@ CLASSIFICATION_GUIDANCE: str = """
   path and is realistically triggerable, classify it as REAL even when the
   impact is only low severity, reliability-only, or otherwise not a strong
   security vulnerability.
+- Classification rule: do not treat unavoidable program semantics as a real
+  vulnerability when the reported flow is simply the intended feature needed
+  for the program to operate. For example, if a command-line tool must open a
+  user-specified input file to do its job, a user-controlled path reaching
+  `open` is not by itself a real vulnerability unless additional code evidence
+  shows unsafe behavior beyond that expected feature boundary.
+- Classification rule: some non-best-practice patterns are still REAL when
+  they create a meaningful security risk even if the bug looks subtle or
+  low-level. For example, creating a temporary file with `mkstemp` but then
+  failing to manage the returned file descriptor safely, or reopening the path
+  later instead of consistently using the original descriptor, should be
+  treated as REAL when the surrounding code makes the resulting race or file
+  safety issue realistic.
+- Classification rule: do not over-index on style-only or hygiene-only issues.
+  If a pattern is merely non-ideal but the code evidence does not show a
+  realistic security consequence, classify it as FALSE_POSITIVE rather than
+  treating every non-best-practice as a real vulnerability.
 - Classification rule: use FALSE_POSITIVE when the CodeQL-implied condition
   does not actually hold on the real path, or is blocked by guards,
   sanitization, type/range constraints, or missing reachability.
@@ -203,6 +220,18 @@ def build_agent_instructions(test_mode: bool = False) -> str:
             "the CodeQL-identified condition actually occurs on a real, "
             "triggerable path, classify it as real even if the result is "
             "only low severity or reliability-oriented.",
+            "Do not treat an intended, unavoidable program behavior as a "
+            "real vulnerability when that behavior is simply required for "
+            "the program to function, such as a CLI opening a user-selected "
+            "input file, unless there is additional unsafe behavior beyond "
+            "that feature boundary.",
+            "Do treat non-best-practice code as real when it creates a "
+            "meaningful security risk in context, such as unsafe `mkstemp` "
+            "descriptor handling or reopening a temporary-file path instead "
+            "of consistently using the original file descriptor.",
+            "Do not treat every non-best-practice as real; if the code "
+            "evidence does not show a realistic security consequence, "
+            "classify it as false positive.",
             "Use false positive when the condition does not actually hold "
             "on the real path or is blocked in practice.",
             "Use uncertain when the code evidence is insufficient to decide.",
