@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import shutil
 import sys
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -165,38 +166,63 @@ def _run_analyze_all(
 
     def run_single_row(row: CodeQLResultRow) -> dict[str, object]:
         row_dir: Path = batch_artifacts.run_dir / str(row.row_index)
-        row_artifacts: RunArtifacts = RunArtifacts.create_in_dir(
-            run_dir=row_dir,
-            command_name="analyze-row",
-        )
-        logger.info(
-            "analyzing row=%s rule=%s file=%s",
-            row.row_index,
-            row.rule_name,
-            row.relative_file_path,
-        )
-        try:
-            analyze_codeql_row_sync(
-                config=config,
-                row=row,
-                artifacts=row_artifacts,
-                test_mode=test_mode,
+        max_attempts: int = 2
+        last_error: str | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            shutil.rmtree(row_dir, ignore_errors=True)
+            row_artifacts: RunArtifacts = RunArtifacts.create_in_dir(
+                run_dir=row_dir,
+                command_name="analyze-row",
             )
-            report_json_path: Path = row_dir / "report.json"
-            return {
-                "row_index": row.row_index,
-                "run_dir": row_dir,
-                "status": "ok",
-                "report_json": report_json_path,
-            }
-        except Exception as exc:
-            logger.exception("row_analysis_failed row=%s", row.row_index)
-            return {
-                "row_index": row.row_index,
-                "run_dir": row_dir,
-                "status": "error",
-                "error": str(exc),
-            }
+            logger.info(
+                "analyzing row=%s rule=%s file=%s attempt=%s/%s",
+                row.row_index,
+                row.rule_name,
+                row.relative_file_path,
+                attempt,
+                max_attempts,
+            )
+            try:
+                analyze_codeql_row_sync(
+                    config=config,
+                    row=row,
+                    artifacts=row_artifacts,
+                    test_mode=test_mode,
+                )
+                report_json_path: Path = row_dir / "report.json"
+                report_pdf_path: Path = row_dir / "report.pdf"
+                if report_json_path.is_file() and report_pdf_path.is_file():
+                    return {
+                        "row_index": row.row_index,
+                        "run_dir": row_dir,
+                        "status": "ok",
+                        "report_json": report_json_path,
+                        "attempts": attempt,
+                    }
+                last_error = "missing report.pdf"
+                logger.warning(
+                    "row_analysis_missing_pdf row=%s attempt=%s/%s",
+                    row.row_index,
+                    attempt,
+                    max_attempts,
+                )
+            except Exception as exc:
+                last_error = str(exc)
+                logger.exception(
+                    "row_analysis_failed row=%s attempt=%s/%s",
+                    row.row_index,
+                    attempt,
+                    max_attempts,
+                )
+
+        return {
+            "row_index": row.row_index,
+            "run_dir": row_dir,
+            "status": "error",
+            "error": last_error or "unknown error",
+            "attempts": max_attempts,
+        }
 
     with ThreadPoolExecutor(max_workers=config.agent.max_concurrency) as executor:
         future_by_row_index: dict[Future[dict[str, object]], int] = {
