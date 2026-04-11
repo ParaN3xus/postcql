@@ -17,6 +17,17 @@ DEFAULT_PAGE_SIZE: int = 32
 DEFAULT_SEARCH_RESULTS: int = 32
 
 
+def _format_source_lines(
+    lines: list[str],
+    start_line: int,
+    end_line: int,
+) -> list[str]:
+    return [
+        f"{line_number:6d}: {lines[line_number - 1]}"
+        for line_number in range(start_line, end_line + 1)
+    ]
+
+
 def _build_source_ignore_spec(source_dir: Path) -> PathSpec | None:
     gitignore_path: Path = source_dir / ".gitignore"
     if not gitignore_path.is_file():
@@ -178,10 +189,11 @@ def build_read_source_context_tool(source_dir: Path) -> Any:
         start_line: int = max(1, center_line - context_lines)
         end_line: int = min(len(lines), center_line + context_lines)
 
-        rendered_lines: list[str] = [
-            f"{line_number:6d}: {lines[line_number - 1]}"
-            for line_number in range(start_line, end_line + 1)
-        ]
+        rendered_lines: list[str] = _format_source_lines(
+            lines=lines,
+            start_line=start_line,
+            end_line=end_line,
+        )
         header: str = (
             f"file={resolved_path}\n"
             f"requested_line={center_line}\n"
@@ -214,10 +226,11 @@ def build_read_source_span_tool(source_dir: Path) -> Any:
 
         lines: list[str] = _read_text_lines(resolved_path)
         bounded_end_line: int = min(len(lines), end_line)
-        rendered_lines: list[str] = [
-            f"{line_number:6d}: {lines[line_number - 1]}"
-            for line_number in range(start_line, bounded_end_line + 1)
-        ]
+        rendered_lines: list[str] = _format_source_lines(
+            lines=lines,
+            start_line=start_line,
+            end_line=bounded_end_line,
+        )
         header: str = (
             f"file={resolved_path}\n"
             f"requested_range={start_line}-{end_line}\n"
