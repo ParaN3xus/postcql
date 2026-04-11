@@ -1,4 +1,5 @@
 #import "@preview/zebraw:0.6.1": *
+#import "@preview/cmarker:0.1.8": render
 
 #let workspace-dir = str(sys.inputs.at("workspace_dir", default: "/work"))
 
@@ -63,6 +64,10 @@
     (vis-hend - start0,)
   } else {
     range(vis-hstart - start0, vis-hend - start0)
+  }
+
+  if (stripped == ()) {
+    return
   }
 
   link(fullpath, raw(relpath))
@@ -142,7 +147,7 @@
   items
     .map(x => {
       let end-line = if x.end_line == none { x.start_line } else { x.end_line }
-      eval(x.message, mode: "markup")
+      render(x.message)
       source-segment(workspace-dir, x.file_path, x.start_line - 4, end-line + 4, x.start_line, end-line)
     })
     .join()
@@ -155,7 +160,7 @@
 
   steps
     .map(step => {
-      eval(step.message, mode: "markup")
+      render(step.message)
       if has-path-items(step.evidence) {
         render-path-items(step.evidence)
       }
@@ -187,13 +192,13 @@
   [
     / Verdict: #render-verdict(report.verdict)
     / Severity: #render-severity(report.severity)
-    / Explanation: #eval(report.explanation, mode: "markup")
+    / Explanation: #render(report.explanation)
   ]
 
   h1[Analysis]
 
   h2[CodeQL's Hypothesis]
-  eval(report.initial_hypothesis, mode: "markup")
+  render(report.initial_hypothesis)
 
   h2[Hypothesis Validation]
   if has-validation-steps(report.hypothesis_validation) {
@@ -201,11 +206,11 @@
   } else if has-path-items(report.hypothesis_validation) {
     render-path-items(report.hypothesis_validation)
   } else if not is-noneish(report.hypothesis_validation) {
-    eval(report.hypothesis_validation, mode: "markup")
+    render(report.hypothesis_validation)
   }
 
   h2[Real-world Triggerability]
-  eval(report.triggerability, mode: "markup")
+  render(report.triggerability)
 
   if has-path-items(report.trigger_path) {
     h3[Trigger Path]
@@ -214,12 +219,12 @@
 
   if not is-noneish(report.impact) {
     h1[Impact]
-    eval(report.impact, mode: "markup")
+    render(report.impact)
   }
 
   if not is-noneish(report.remediation) {
     h1[Remediation]
-    eval(report.remediation, mode: "markup")
+    render(report.remediation)
   }
 }
 

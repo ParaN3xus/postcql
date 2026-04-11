@@ -60,7 +60,7 @@ STRUCTURED_OUTPUT_GUIDANCE: str = """
   happens and is triggerable; in that case classify it as REAL and describe the
   actual impact level separately.
 - trigger_path must be a structured sequence of path steps, not one free-form paragraph.
-- These fields are rendered directly as section content under Typst headings in
+- These fields are rendered directly as section content under Markdown headings in
   the final report. Write them as clean prose paragraphs or structured steps,
   not as `Field Name: value` labels.
 - Use normal sentence casing and paragraph formatting. Start sentences with a
