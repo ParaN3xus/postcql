@@ -55,6 +55,12 @@ STRUCTURED_OUTPUT_GUIDANCE: str = """
   or contradictory call-flow evidence that blocks the issue. Not every step
   needs an attached code location, but attach evidence where it materially
   strengthens the claim.
+- Any `file_path` attached in `hypothesis_validation.evidence` or `trigger_path`
+  must be a source-relative repository path such as `magick/utility.c`, never
+  an absolute filesystem path.
+- Any attached source range must refer to a real file and valid 1-based line
+  numbers within that file. Do not invent ranges that extend past the file's
+  actual line count.
 - Keep verdict and triggerability logically consistent. Do not mark a finding
   FALSE_POSITIVE if your analysis says the CodeQL-identified condition really
   happens and is triggerable; in that case classify it as REAL and describe the

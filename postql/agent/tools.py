@@ -68,6 +68,83 @@ def _validate_page_size(value: int, field_name: str) -> None:
         raise ValueError(f"{field_name} must be >= 1")
 
 
+def _validate_report_path_item(
+    source_dir: Path,
+    item: Any,
+    field_name: str,
+    item_index: int,
+) -> None:
+    file_path: object = getattr(item, "file_path", None)
+    start_line: object = getattr(item, "start_line", None)
+    end_line_raw: object = getattr(item, "end_line", None)
+    if not isinstance(file_path, str):
+        raise ValueError(f"{field_name}[{item_index}].file_path must be a string")
+    if Path(file_path).is_absolute():
+        raise ValueError(
+            f"{field_name}[{item_index}].file_path must be source-relative, "
+            f"not absolute: {file_path}"
+        )
+    if not isinstance(start_line, int):
+        raise ValueError(f"{field_name}[{item_index}].start_line must be an integer")
+    end_line: int
+    if end_line_raw is None:
+        end_line = start_line
+    elif isinstance(end_line_raw, int):
+        end_line = end_line_raw
+    else:
+        raise ValueError(f"{field_name}[{item_index}].end_line must be an integer")
+    if start_line < 1:
+        raise ValueError(f"{field_name}[{item_index}].start_line must be >= 1")
+    if end_line < start_line:
+        raise ValueError(
+            f"{field_name}[{item_index}] has invalid range: "
+            f"start_line={start_line} end_line={end_line}"
+        )
+
+    resolved_path: Path = _resolve_source_path(
+        source_dir=source_dir,
+        file_path=file_path,
+    )
+    if not resolved_path.is_file():
+        raise FileNotFoundError(f"Source file not found: {resolved_path}")
+    total_lines: int = len(_read_text_lines(resolved_path))
+    if start_line > total_lines or end_line > total_lines:
+        raise ValueError(
+            f"{field_name}[{item_index}] range {start_line}-{end_line} exceeds "
+            f"file length {total_lines}: {file_path}"
+        )
+
+
+def _validate_report_source_references(
+    report: SingleFindingReport,
+    source_dir: Path,
+) -> None:
+    hypothesis_validation: object = report.hypothesis_validation
+    if isinstance(hypothesis_validation, list):
+        for step_index, step in enumerate(hypothesis_validation):
+            evidence: object = getattr(step, "evidence", None)
+            if isinstance(evidence, list):
+                for evidence_index, item in enumerate(evidence):
+                    _validate_report_path_item(
+                        source_dir=source_dir,
+                        item=item,
+                        field_name=(
+                            f"hypothesis_validation[{step_index}].evidence"
+                        ),
+                        item_index=evidence_index,
+                    )
+
+    trigger_path: object = report.trigger_path
+    if isinstance(trigger_path, list):
+        for item_index, item in enumerate(trigger_path):
+            _validate_report_path_item(
+                source_dir=source_dir,
+                item=item,
+                field_name="trigger_path",
+                item_index=item_index,
+            )
+
+
 def build_read_source_context_tool(source_dir: Path) -> Any:
     @function_tool
     def read_source_context(
@@ -256,9 +333,31 @@ def build_submit_triage_report_tool(
     row: CodeQLResultRow,
     artifacts: RunArtifacts,
     workspace_dir: Path,
+    source_dir: Path,
 ) -> Any:
     def submit_triage_report(report: SingleFindingReport) -> str:
         """Submit the final structured triage report for this finding."""
+        structured_report: dict[str, Any] = asdict(
+            SingleFindingReport(
+                verdict=report.verdict,
+                severity=report.severity,
+                explanation=report.explanation,
+                initial_hypothesis=report.initial_hypothesis,
+                hypothesis_validation=report.hypothesis_validation,
+                triggerability=report.triggerability,
+                trigger_path=report.trigger_path,
+                impact=report.impact,
+                remediation=report.remediation,
+                raw_row=row,
+            )
+        )
+        artifacts.write_run_json({"structured_report": structured_report})
+        try:
+            _validate_report_source_references(report=report, source_dir=source_dir)
+        except Exception as exc:
+            artifacts.write_run_json({"report_validation_error": str(exc)})
+            raise
+
         bundle = write_single_finding_report(
             output_dir=artifacts.run_dir,
             row=row,
@@ -267,20 +366,7 @@ def build_submit_triage_report_tool(
         )
         artifacts.write_run_json(
             {
-                "structured_report": asdict(
-                    SingleFindingReport(
-                        verdict=report.verdict,
-                        severity=report.severity,
-                        explanation=report.explanation,
-                        initial_hypothesis=report.initial_hypothesis,
-                        hypothesis_validation=report.hypothesis_validation,
-                        triggerability=report.triggerability,
-                        trigger_path=report.trigger_path,
-                        impact=report.impact,
-                        remediation=report.remediation,
-                        raw_row=row,
-                    )
-                ),
+                "structured_report": structured_report,
                 "report_files": {
                     "json": str(bundle.json_path),
                     "pdf": str(bundle.pdf_path) if bundle.pdf_generated else None,

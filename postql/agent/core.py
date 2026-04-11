@@ -107,6 +107,7 @@ async def analyze_codeql_row(
         row=row,
         artifacts=artifacts,
         workspace_dir=config.work_dir,
+        source_dir=config.source_dir,
     )
     await mcp_server.connect()
 
