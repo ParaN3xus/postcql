@@ -67,7 +67,7 @@
   }
 
   if (stripped == ()) {
-    return
+    panic(relpath)
   }
 
   link(fullpath, raw(relpath))

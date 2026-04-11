@@ -42,8 +42,11 @@ def _read_text_lines(path: Path) -> list[str]:
     raw_bytes: bytes = path.read_bytes()
     if b"\x00" in raw_bytes:
         raise ValueError(f"Refusing to read non-text file: {path}")
+    raw_lines: list[bytes] = raw_bytes.split(b"\n")
+    if raw_lines and raw_lines[-1] == b"":
+        raw_lines.pop()
     try:
-        return raw_bytes.decode("utf-8").splitlines()
+        return [raw_line.decode("utf-8").rstrip("\r") for raw_line in raw_lines]
     except UnicodeDecodeError as exc:
         raise ValueError(f"Refusing to read non-UTF-8 text file: {path}") from exc
 
@@ -74,9 +77,14 @@ def _validate_report_path_item(
     field_name: str,
     item_index: int,
 ) -> None:
-    file_path: object = getattr(item, "file_path", None)
-    start_line: object = getattr(item, "start_line", None)
-    end_line_raw: object = getattr(item, "end_line", None)
+    if isinstance(item, dict):
+        file_path: object = item.get("file_path")
+        start_line: object = item.get("start_line")
+        end_line_raw: object = item.get("end_line")
+    else:
+        file_path = getattr(item, "file_path", None)
+        start_line = getattr(item, "start_line", None)
+        end_line_raw = getattr(item, "end_line", None)
     if not isinstance(file_path, str):
         raise ValueError(f"{field_name}[{item_index}].file_path must be a string")
     if Path(file_path).is_absolute():
@@ -122,15 +130,16 @@ def _validate_report_source_references(
     hypothesis_validation: object = report.hypothesis_validation
     if isinstance(hypothesis_validation, list):
         for step_index, step in enumerate(hypothesis_validation):
-            evidence: object = getattr(step, "evidence", None)
+            if isinstance(step, dict):
+                evidence: object = step.get("evidence")
+            else:
+                evidence = getattr(step, "evidence", None)
             if isinstance(evidence, list):
                 for evidence_index, item in enumerate(evidence):
                     _validate_report_path_item(
                         source_dir=source_dir,
                         item=item,
-                        field_name=(
-                            f"hypothesis_validation[{step_index}].evidence"
-                        ),
+                        field_name=(f"hypothesis_validation[{step_index}].evidence"),
                         item_index=evidence_index,
                     )
 
