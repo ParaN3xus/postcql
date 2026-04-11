@@ -40,20 +40,20 @@ def _template_dir() -> Path:
     return Path(__file__).resolve().parent / "templates"
 
 
-def _workspace_input_path(
+def _root_relative_input_path(
     template_path: Path,
-    workspace_dir: Path,
+    path: Path,
+    label: str,
 ) -> tuple[str | None, str | None]:
-    workspace_dir = workspace_dir.resolve()
+    path = path.resolve()
     root_dir = template_path.parents[3]
     try:
-        workspace_relative: Path = workspace_dir.relative_to(root_dir)
-        return "/" + str(workspace_relative), None
+        relative_path: Path = path.relative_to(root_dir)
+        return "/" + str(relative_path), None
     except ValueError:
         return (
             None,
-            f"workspace_dir must be under typst root: "
-            f"workspace_dir={workspace_dir} root={root_dir}",
+            f"{label} must be under typst root: {label}={path} root={root_dir}",
         )
 
 
@@ -72,9 +72,10 @@ def _compile_typst_template(
     output_pdf_path = output_pdf_path.resolve()
     input_json_path = input_json_path.resolve()
     root_dir = template_path.parents[3]
-    workspace_input, workspace_error = _workspace_input_path(
+    workspace_input, workspace_error = _root_relative_input_path(
         template_path=template_path,
-        workspace_dir=workspace_dir,
+        path=workspace_dir,
+        label="workspace_dir",
     )
     if workspace_error is not None or workspace_input is None:
         return False, typst_command, workspace_error or "invalid workspace input"
@@ -154,19 +155,36 @@ def write_full_report(
 ) -> ReportBundle:
     json_path: Path = output_dir / "full_report.json"
     pdf_path: Path = output_dir / "full_report.pdf"
-    reports: list[Any] = [
-        json.loads(report_json_path.read_text(encoding="utf-8"))
-        for report_json_path in report_json_paths
-    ]
+    template_path: Path = _template_dir() / "full_report.typ"
+    ordered_report_json_paths: list[Path] = sorted(
+        report_json_paths,
+        key=lambda path: int(path.parent.name),
+    )
+    report_json_inputs: list[str] = []
+    for report_json_path in ordered_report_json_paths:
+        report_json_input, report_json_error = _root_relative_input_path(
+            template_path=template_path,
+            path=report_json_path,
+            label="report_json_path",
+        )
+        if report_json_error is not None or report_json_input is None:
+            return ReportBundle(
+                json_path=json_path,
+                pdf_path=pdf_path,
+                pdf_generated=False,
+                typst_command=_find_typst_binary(),
+                pdf_error=report_json_error or "invalid report_json_path input",
+            )
+        report_json_inputs.append(report_json_input)
     json_path.write_text(
-        json.dumps(reports, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(report_json_inputs, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
 
     pdf_generated, typst_command, pdf_error = _compile_typst_template(
-        template_path=_template_dir() / "full_report.typ",
+        template_path=template_path,
         output_pdf_path=pdf_path,
-        input_name="reports_json",
+        input_name="report_paths_json",
         input_json_path=json_path,
         workspace_dir=workspace_dir,
     )

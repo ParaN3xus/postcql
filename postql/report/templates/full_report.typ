@@ -2,7 +2,12 @@
 #import "@preview/numbly:0.1.0": numbly
 #import "@preview/lilaq:0.6.0" as lq
 
-#let reports = json(bytes(sys.inputs.at("reports_json", default: read("full-example.json"))))
+#let report-paths-json = sys.inputs.at("report_paths_json", default: none)
+#let reports = if report-paths-json == none {
+  json(bytes(read("full-example.json")))
+} else {
+  json(bytes(report-paths-json)).map(path => json(bytes(read(path))))
+}
 
 #let verdict-order = ("real", "false_positive", "uncertain")
 #let verdict-labels = ("Real", "False Positive", "Uncertain")
