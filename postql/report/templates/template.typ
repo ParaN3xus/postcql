@@ -70,8 +70,9 @@
     panic(relpath)
   }
 
+  parbreak()
   link(fullpath, raw(relpath))
-
+  v(-0.5em)
   zebraw(
     raw(
       block: true,
