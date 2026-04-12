@@ -45,6 +45,9 @@ CLASSIFICATION_GUIDANCE: str = """
   sanitization, type/range constraints, or missing reachability.
 - Classification rule: use UNCERTAIN when the available code evidence is not
   strong enough to decide between REAL and FALSE_POSITIVE.
+- Classification rule: when macro-controlled code makes the real behavior
+  ambiguous, treat the effective build configuration in `compile_commands.json`
+  as the source of truth for which macros and paths actually apply.
 - Be explicit about uncertainty.
   Do not claim exploitability unless the code evidence supports it.
 """.strip()
