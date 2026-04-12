@@ -47,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_row.add_argument(
         "row_index",
         type=int,
+        nargs="+",
         help="0-based result index in the CodeQL SARIF file",
     )
     analyze_row.add_argument(
@@ -123,6 +124,33 @@ def _confirm_analyze_row(row: CodeQLResultRow, test_mode: bool) -> bool:
     return response not in {"n", "no"}
 
 
+def _confirm_analyze_rows(rows: list[CodeQLResultRow], test_mode: bool) -> bool:
+    preview_rows: list[CodeQLResultRow] = rows[:5]
+    lines: list[str] = [
+        "About to analyze these SARIF results:",
+        f"  total_rows: {len(rows)}",
+        f"  row_indexes: {', '.join(str(row.row_index) for row in rows)}",
+        f"  test_mode: {test_mode}",
+    ]
+    for row in preview_rows:
+        lines.append(
+            "  - "
+            f"{row.row_index} {row.rule_name} {row.relative_file_path} "
+            f"{row.start.line}:{row.start.column}"
+        )
+    if len(rows) > len(preview_rows):
+        lines.append(f"  - ... {len(rows) - len(preview_rows)} more rows")
+    lines.extend(
+        [
+            "",
+            "Press Enter to continue, or type 'n' to cancel: ",
+        ]
+    )
+    print("\n".join(lines), end="", flush=True)
+    response: str = input().strip().lower()
+    return response not in {"n", "no"}
+
+
 def _run_analyze_row(
     config: AppConfig,
     row: CodeQLResultRow,
@@ -155,9 +183,23 @@ def _run_analyze_all(
     rows: list[CodeQLResultRow],
     test_mode: bool,
 ) -> int:
+    return _run_batch_analysis(
+        config=config,
+        rows=rows,
+        test_mode=test_mode,
+        command_name="analyze-all",
+    )
+
+
+def _run_batch_analysis(
+    config: AppConfig,
+    rows: list[CodeQLResultRow],
+    test_mode: bool,
+    command_name: str,
+) -> int:
     batch_artifacts: RunArtifacts = RunArtifacts.create(
         results_dir=config.results_dir,
-        command_name="analyze-all",
+        command_name=command_name,
     )
     successful_report_json_paths: list[Path] = []
     row_results: list[dict[str, object]] = []
@@ -248,6 +290,7 @@ def _run_analyze_all(
     batch_artifacts.write_run_json(
         {
             "test_mode": test_mode,
+            "command_name": command_name,
             "total_rows": len(rows),
             "successful_rows": len(successful_report_json_paths),
             "failed_rows": len(rows) - len(successful_report_json_paths),
@@ -279,18 +322,47 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "analyze-row":
         rows = read_codeql_sarif(config.codeql_sarif_path)
-        row: CodeQLResultRow = _get_row_by_index(rows=rows, row_index=args.row_index)
+        selected_rows: list[CodeQLResultRow] = [
+            _get_row_by_index(rows=rows, row_index=row_index)
+            for row_index in args.row_index
+        ]
+        unique_rows: list[CodeQLResultRow] = []
+        seen_row_indexes: set[int] = set()
+        for row in selected_rows:
+            if row.row_index in seen_row_indexes:
+                continue
+            seen_row_indexes.add(row.row_index)
+            unique_rows.append(row)
+        selected_rows = unique_rows
         if not args.yes:
             if not sys.stdin.isatty():
                 raise RuntimeError("Interactive confirmation requires a TTY; use --yes")
-            if not _confirm_analyze_row(row=row, test_mode=args.test_mode):
+            confirmed: bool
+            if len(selected_rows) == 1:
+                confirmed = _confirm_analyze_row(
+                    row=selected_rows[0],
+                    test_mode=args.test_mode,
+                )
+            else:
+                confirmed = _confirm_analyze_rows(
+                    rows=selected_rows,
+                    test_mode=args.test_mode,
+                )
+            if not confirmed:
                 print("Cancelled.")
                 return 1
-        return _run_analyze_row(
+        if len(selected_rows) == 1:
+            return _run_analyze_row(
+                config=config,
+                row=selected_rows[0],
+                command_name=args.command,
+                test_mode=args.test_mode,
+            )
+        return _run_batch_analysis(
             config=config,
-            row=row,
-            command_name=args.command,
+            rows=selected_rows,
             test_mode=args.test_mode,
+            command_name="analyze-row-batch",
         )
     if args.command == "analyze-all":
         rows = read_codeql_sarif(config.codeql_sarif_path)
