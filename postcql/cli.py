@@ -24,7 +24,7 @@ def _parse_log_level(value: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="postql")
+    parser = argparse.ArgumentParser(prog="postcql")
     parser.add_argument(
         "--config",
         type=Path,

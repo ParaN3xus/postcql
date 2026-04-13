@@ -1,5 +1,4 @@
-from postql.cli import main
-
+from postcql.cli import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -2,7 +2,7 @@ import logging
 import sys
 
 
-def setup_logger(name: str = "postql", level: int = logging.INFO) -> logging.Logger:
+def setup_logger(name: str = "postcql", level: int = logging.INFO) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(level)
 

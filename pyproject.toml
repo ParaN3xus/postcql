@@ -1,5 +1,5 @@
 [project]
-name = "postql"
+name = "postcql"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -19,7 +19,7 @@ dev = [
 ]
 
 [tool.ruff]
-exclude = ["postql/sarif_schema_models.py"]
+exclude = ["postcql/sarif_schema_models.py"]
 
 [tool.ruff.lint]
 select = ["E501"]
@@ -30,5 +30,5 @@ reportMatchNotExhaustive = "error"
 venvPath = "."
 venv = ".venv"
 
-include = ["postql", "main.py"]
+include = ["postcql", "main.py"]
 exclude = ["**/__pycache__", ".venv", "**/.*", "**/node_modules", "local", "work"]

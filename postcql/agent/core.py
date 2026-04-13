@@ -113,7 +113,7 @@ async def analyze_codeql_row(
 
     try:
         agent = Agent[AnalysisContext](
-            name="PostQL CodeQL Triage Agent",
+            name="PostCQL Triage Agent",
             instructions=build_agent_instructions(test_mode=test_mode),
             tools=[
                 read_source_context_tool,
