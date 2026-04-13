@@ -36,6 +36,33 @@ CLASSIFICATION_GUIDANCE: str = """
   later instead of consistently using the original descriptor, should be
   treated as REAL when the surrounding code makes the resulting race or file
   safety issue realistic.
+- Classification rule: treat temporary-file lifecycle regressions as REAL by
+  default when code first establishes a temporary file or temporary pathname in
+  a safer way, but later falls back to pathname-based handling of that same
+  artifact. Typical signals include losing the original descriptor or handle,
+  passing the temp pathname through additional subsystems, or reusing the temp
+  pathname for later reads, writes, delegate execution, or cleanup. Do not
+  dismiss these cases merely because the pathname is library-generated rather
+  than copied directly from user input.
+- Classification rule: when an alert lands on a cleanup or follow-up operation
+  involving a temporary artifact, analyze the whole temporary-file lifecycle
+  rather than only the sink line. If nearby code shows that the same temp
+  artifact was later reused through pathname semantics, related cleanup
+  findings should normally follow the same verdict as that underlying
+  temporary-file handling issue.
+- Classification rule: avoid line-local reasoning for temporary resources. A
+  cleanup sink is not automatically safe just because it deletes a
+  library-generated temp path; if the surrounding lifecycle for that same temp
+  artifact already regressed to less-safe pathname-based handling, classify the
+  cleanup finding consistently with that broader issue unless the code shows it
+  is a different artifact or a different control-flow path.
+- Classification rule: do not break the temporary-file lifecycle just because
+  the temp path is wrapped inside another object or string representation
+  before later use. If code writes or creates a temp artifact and then passes
+  that artifact into another API by embedding the pathname into a cloned info
+  struct, a format-prefixed filename string, a delegate command, or another
+  derived wrapper, that still counts as later pathname-based reuse of the same
+  temp artifact.
 - Classification rule: do not over-index on style-only or hygiene-only issues.
   If a pattern is merely non-ideal but the code evidence does not show a
   realistic security consequence, classify it as FALSE_POSITIVE rather than
@@ -232,6 +259,25 @@ def build_agent_instructions(test_mode: bool = False) -> str:
             "meaningful security risk in context, such as unsafe `mkstemp` "
             "descriptor handling or reopening a temporary-file path instead "
             "of consistently using the original file descriptor.",
+            "Treat temporary-file lifecycle regressions as real by default "
+            "when code first creates or acquires a temporary artifact in a "
+            "safer way but later falls back to pathname-based handling of "
+            "that same artifact.",
+            "When the alert lands on a cleanup or follow-up line involving "
+            "a temporary artifact, reason about the entire temporary-file "
+            "lifecycle rather than the sink in isolation; related cleanup "
+            "findings should normally inherit the same verdict as the "
+            "underlying temp-file handling issue.",
+            "Do not assume a cleanup sink is safe merely because it targets "
+            "a library-generated temp path; if the same temp artifact was "
+            "already handled unsafely through pathname-based reuse, keep the "
+            "cleanup finding aligned with that broader lifecycle issue unless "
+            "the code clearly shows a different artifact or path.",
+            "Do not lose the temp-file lifecycle merely because the temp "
+            "pathname is wrapped into another object or derived string "
+            "before later use; cloned info structs, prefixed filenames, and "
+            "similar wrappers still count as pathname-based reuse of the "
+            "same temp artifact.",
             "Do not treat every non-best-practice as real; if the code "
             "evidence does not show a realistic security consequence, "
             "classify it as false positive.",
