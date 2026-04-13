@@ -1,0 +1,4 @@
+interface:
+  display_name: "Report To PoC"
+  short_description: "Turn triage reports into PoCs"
+  default_prompt: "Use $report-to-poc to turn a CodeQL triage report into a minimal reproducible PoC."
