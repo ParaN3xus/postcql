@@ -1,18 +1,18 @@
 # PostCQL
 
-PostCQL 是一个面向 CodeQL 告警分诊的实验性 CLI 工具. 
+PostCQL 是一个用于 CodeQL 告警分诊的实验性 CLI 工具.
 
 ## 架构
 
-见下图. 详见报告. 
+见下图. 详见报告.
 
 ![Architecture](report/assets/arch.svg)
 
 ## 运行展示
+
 ![Running Demo](report/assets/demo-running.png)
 
 ![Result Demo](report/assets/demo-result.png)
-
 
 ## 用法
 
@@ -28,6 +28,7 @@ PostCQL 是一个面向 CodeQL 告警分诊的实验性 CLI 工具.
 ### 获取目标项目源码
 
 下载源码并解压到工作目录:
+
 ```sh
 mkdir -p work/source && wget https://imagemagick.org/archive/releases/ImageMagick-6.9.2-10.tar.xz && tar -xJf ImageMagick-6.9.2-10.tar.xz -C work/source --strip-components=1
 ```
@@ -85,11 +86,12 @@ cd work/source && make clean && compiledb -f -o compile_commands.json make -j$(n
 ```
 
 修改配置
+
 ```sh
 cp config.toml.example config.toml
 ```
 
-然后手动修改 `config.toml` 中的相关字段. 
+然后手动修改 `config.toml` 中的相关字段.
 
 执行研判任务
 
