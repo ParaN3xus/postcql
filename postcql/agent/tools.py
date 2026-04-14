@@ -356,6 +356,7 @@ def build_submit_triage_report_tool(
     artifacts: RunArtifacts,
     workspace_dir: Path,
     source_dir: Path,
+    typst_command: str | None = None,
 ) -> Any:
     def submit_triage_report(report: SingleFindingReport) -> str:
         """Submit the final structured triage report for this finding."""
@@ -385,6 +386,7 @@ def build_submit_triage_report_tool(
             row=row,
             report=report,
             workspace_dir=workspace_dir,
+            typst_command=typst_command,
         )
         artifacts.write_run_json(
             {

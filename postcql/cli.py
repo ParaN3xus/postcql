@@ -285,6 +285,7 @@ def _run_batch_analysis(
             output_dir=batch_artifacts.run_dir,
             report_json_paths=successful_report_json_paths,
             workspace_dir=config.work_dir,
+            typst_command=config.binaries.typst,
         )
 
     batch_artifacts.write_run_json(

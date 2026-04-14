@@ -6,6 +6,13 @@ api_mode = "chat_completions"
 
 [app]
 work_dir = "work"
+codeql_sarif_filename = "all.sarif"
+
+[binaries]
+mcp_server = "mcp-language-server"
+clangd = "clangd"
+typst = "typst"
+mcp_server_path_entries = []
 
 [agent]
 max_turns = 64

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -18,7 +20,7 @@ from openai import AsyncOpenAI
 from openai.types.shared import Reasoning
 
 from ..codeql_sarif import CodeQLResultRow
-from ..config import DEFAULT_CLANGD_PATH, DEFAULT_MCP_SERVER_COMMAND, AppConfig
+from ..config import AppConfig
 from ..logging import logger
 from ..run_artifacts import RunArtifacts
 from .events import consume_streaming_events
@@ -49,22 +51,51 @@ def configure_openai_client(config: AppConfig) -> AsyncOpenAI:
     return client
 
 
+def _resolve_binary(
+    configured_command: str | None,
+    label: str,
+) -> str:
+    if not configured_command:
+        raise ValueError(f"{label} binary is not configured")
+    resolved: str | None = shutil.which(configured_command)
+    if resolved:
+        return resolved
+    candidate_path = Path(configured_command).expanduser()
+    if candidate_path.is_file():
+        return str(candidate_path.resolve())
+    raise FileNotFoundError(f"{label} binary not found: {configured_command}")
+
+
 def build_mcp_server(config: AppConfig) -> MCPServerStdio:
+    clangd_command: str = _resolve_binary(
+        config.binaries.clangd,
+        "clangd",
+    )
+    mcp_server_command: str = _resolve_binary(
+        config.binaries.mcp_server,
+        "mcp-language-server",
+    )
     server_args: list[str] = [
         "--workspace",
         str(config.source_dir),
         "--lsp",
-        DEFAULT_CLANGD_PATH,
+        clangd_command,
         "--",
         f"--compile-commands-dir={config.compile_commands_dir}",
     ]
-    env: dict[str, str] = {
-        "PATH": str(Path("/usr/bin")) + ":" + str(Path("/bin")),
-    }
+    env: dict[str, str] = dict(os.environ)
+    if config.binaries.mcp_server_path_entries:
+        current_path: str = env.get("PATH", "")
+        configured_prefix: str = os.pathsep.join(config.binaries.mcp_server_path_entries)
+        env["PATH"] = (
+            configured_prefix
+            if not current_path
+            else configured_prefix + os.pathsep + current_path
+        )
 
     return MCPServerStdio(
         params={
-            "command": DEFAULT_MCP_SERVER_COMMAND,
+            "command": mcp_server_command,
             "args": server_args,
             "cwd": config.source_dir,
             "env": env,
@@ -108,6 +139,7 @@ async def analyze_codeql_row(
         artifacts=artifacts,
         workspace_dir=config.work_dir,
         source_dir=config.source_dir,
+        typst_command=config.binaries.typst,
     )
     await mcp_server.connect()
 

@@ -10,11 +10,6 @@ from typing import Any
 from ..codeql_sarif import CodeQLResultRow
 from .models import SingleFindingReport
 
-DEFAULT_TYPST_PATHS: tuple[str, ...] = (
-    "typst",
-    "/home/admin/.cargo/bin/typst",
-)
-
 
 @dataclass(slots=True)
 class ReportBundle:
@@ -25,15 +20,22 @@ class ReportBundle:
     pdf_error: str | None
 
 
-def _find_typst_binary() -> str | None:
-    for candidate in DEFAULT_TYPST_PATHS:
-        resolved: str | None = shutil.which(candidate)
-        if resolved:
-            return resolved
-        candidate_path = Path(candidate)
-        if candidate_path.is_file():
-            return str(candidate_path)
+def _find_binary(
+    configured_command: str | None,
+) -> str | None:
+    if not configured_command:
+        return None
+    resolved: str | None = shutil.which(configured_command)
+    if resolved:
+        return resolved
+    candidate_path = Path(configured_command).expanduser()
+    if candidate_path.is_file():
+        return str(candidate_path.resolve())
     return None
+
+
+def _repo_root_dir() -> Path:
+    return Path(__file__).resolve().parents[2]
 
 
 def _template_dir() -> Path:
@@ -41,19 +43,18 @@ def _template_dir() -> Path:
 
 
 def _root_relative_input_path(
-    template_path: Path,
+    root_dir: Path,
     path: Path,
     label: str,
 ) -> tuple[str | None, str | None]:
     path = path.resolve()
-    root_dir = template_path.parents[3]
     try:
         relative_path: Path = path.relative_to(root_dir)
         return "/" + str(relative_path), None
     except ValueError:
         return (
             None,
-            f"{label} must be under typst root: {label}={path} root={root_dir}",
+            f"{label} must be under repo root: {label}={path} root={root_dir}",
         )
 
 
@@ -63,17 +64,18 @@ def _compile_typst_template(
     input_name: str,
     input_json_path: Path,
     workspace_dir: Path,
+    typst_command_override: str | None,
 ) -> tuple[bool, str | None, str | None]:
-    typst_command: str | None = _find_typst_binary()
+    typst_command: str | None = _find_binary(typst_command_override)
     if typst_command is None:
         return False, None, "typst binary not found"
 
     template_path = template_path.resolve()
     output_pdf_path = output_pdf_path.resolve()
     input_json_path = input_json_path.resolve()
-    root_dir = template_path.parents[3]
+    root_dir = _repo_root_dir()
     workspace_input, workspace_error = _root_relative_input_path(
-        template_path=template_path,
+        root_dir=root_dir,
         path=workspace_dir,
         label="workspace_dir",
     )
@@ -111,6 +113,7 @@ def write_single_finding_report(
     row: CodeQLResultRow,
     report: SingleFindingReport,
     workspace_dir: Path,
+    typst_command: str | None = None,
 ) -> ReportBundle:
     json_path: Path = output_dir / "report.json"
     pdf_path: Path = output_dir / "report.pdf"
@@ -138,6 +141,7 @@ def write_single_finding_report(
         input_name="report_json",
         input_json_path=json_path,
         workspace_dir=workspace_dir,
+        typst_command_override=typst_command,
     )
     return ReportBundle(
         json_path=json_path,
@@ -152,6 +156,7 @@ def write_full_report(
     output_dir: Path,
     report_json_paths: list[Path],
     workspace_dir: Path,
+    typst_command: str | None = None,
 ) -> ReportBundle:
     json_path: Path = output_dir / "full_report.json"
     pdf_path: Path = output_dir / "full_report.pdf"
@@ -163,7 +168,7 @@ def write_full_report(
     report_json_inputs: list[str] = []
     for report_json_path in ordered_report_json_paths:
         report_json_input, report_json_error = _root_relative_input_path(
-            template_path=template_path,
+            root_dir=_repo_root_dir(),
             path=report_json_path,
             label="report_json_path",
         )
@@ -172,7 +177,7 @@ def write_full_report(
                 json_path=json_path,
                 pdf_path=pdf_path,
                 pdf_generated=False,
-                typst_command=_find_typst_binary(),
+                typst_command=_find_binary(typst_command),
                 pdf_error=report_json_error or "invalid report_json_path input",
             )
         report_json_inputs.append(report_json_input)
@@ -187,6 +192,7 @@ def write_full_report(
         input_name="report_paths_json",
         input_json_path=json_path,
         workspace_dir=workspace_dir,
+        typst_command_override=typst_command,
     )
     return ReportBundle(
         json_path=json_path,
