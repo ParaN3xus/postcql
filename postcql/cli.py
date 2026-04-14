@@ -72,15 +72,6 @@ def build_parser() -> argparse.ArgumentParser:
         "submits a fabricated valid report",
     )
 
-    subparsers.add_parser(
-        "setup",
-        help="Placeholder for future environment setup command",
-    )
-    subparsers.add_parser(
-        "build-database",
-        help="Placeholder for future CodeQL database creation command",
-    )
-
     return parser
 
 
@@ -88,11 +79,6 @@ def _get_row_by_index(rows: List[CodeQLResultRow], row_index: int) -> CodeQLResu
     if row_index < 0 or row_index >= len(rows):
         raise IndexError(f"Row index {row_index} out of range, total rows: {len(rows)}")
     return rows[row_index]
-
-
-def _run_placeholder(command_name: str) -> int:
-    logger.info("command_not_implemented=%s", command_name)
-    return 0
 
 
 def _row_index_from_result(item: dict[str, object]) -> int:
@@ -368,5 +354,4 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "analyze-all":
         rows = read_codeql_sarif(config.codeql_sarif_path)
         return _run_analyze_all(config=config, rows=rows, test_mode=args.test_mode)
-
-    return _run_placeholder(args.command)
+    raise ValueError(f"Unsupported command: {args.command}")
