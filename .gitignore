@@ -17,4 +17,4 @@ config.toml
 # IDE
 .vscode/launch.json
 
-*.pdf
+report/main.pdf
